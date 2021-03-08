@@ -62,8 +62,8 @@ def main():
     terminate_file = f'{exp_root}.terminate'
     
     while not os.path.exists(seatable_file):
-        print(colorama.Fore.GREEN + '[monitor] waiting for the seatable file...')
         time.sleep(20)
+        print(colorama.Fore.GREEN + '[monitor] waiting for the seatable file...')
         if os.path.exists(terminate_file):
             os.remove(terminate_file)
             print(colorama.Fore.CYAN + '[monitor] terminated.')
@@ -84,10 +84,11 @@ def main():
     try:
         rid = None
         while True:
+            time.sleep(5)
             with open(seatable_file, 'r') as fp:
                 dd = json.load(fp)
             if dd == last_dd:
-                print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] same...')
+                # print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] same...')
                 continue
             
             last_dd = dd
@@ -95,7 +96,6 @@ def main():
             print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] updating...')
             rid = create_or_upd_explore_table(base, abs_path, rid, **kwargs)
             print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] updated')
-            time.sleep(5)
             if os.path.exists(terminate_file):
                 os.remove(terminate_file)
                 print(colorama.Fore.CYAN + '[monitor] terminated.')
