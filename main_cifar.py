@@ -20,12 +20,12 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import CIFAR10
 
+from meta import seatable_fname
 from model import model_entry
 from model.bn import SplitBatchNorm
 from utils.dist import TorchDistManager
 from utils.file import create_files
 from utils.misc import time_str, filter_params, set_seed, init_params, AverageMeter, MaxHeap
-
 
 parser = argparse.ArgumentParser(description='Train MoCo on CIFAR-10')
 
@@ -70,7 +70,6 @@ parser.add_argument('--knn_k', default=200, type=int, help='k in kNN monitor')
 parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperature in kNN monitor; could be different with moco-t')
 
 
-
 # # set command line arguments here when running in ipynb
 # args.epochs = 200
 # args.coslr = True
@@ -108,7 +107,7 @@ class ModelMoCo(nn.Module):
         norm_layer = partial(SplitBatchNorm, num_splits=bn_splits) if bn_splits > 1 else nn.BatchNorm2d
         self.encoder_q = model_entry(model_name=arch, num_classes=dim, norm_layer=norm_layer)
         self.encoder_k = model_entry(model_name=arch, num_classes=dim, norm_layer=norm_layer)
-
+        
         if mlp:  # hack: brute-force replacement
             dim_mlp = self.encoder_q.fc.weight.shape[1]
             self.encoder_q.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.encoder_q.fc)
@@ -287,10 +286,10 @@ def train(lg, l_tb_lg, dist, args, epoch, ep_str, iters_per_ep, moco_model, trai
         if cur_iter % log_iters == 0:
             l_tb_lg.add_scalars('pretrain/tr_loss', {'it': tr_loss_avg.avg}, cur_iter)
             lg.info(
-                f'     ep[{ep_str}] it[{it+1}/{iters_per_ep}]: L={cur_avg_loss:.4f} ({tr_loss_avg.avg:.4f})\n'
-                f'       da[{data_t-last_t:.3f}], cu[{cuda_t-data_t:.3f}], fo[{forw_t-cuda_t:.3f}], ba[{back_t-forw_t:.3f}]'
+                f'     ep[{ep_str}] it[{it + 1}/{iters_per_ep}]: L={cur_avg_loss:.4f} ({tr_loss_avg.avg:.4f})\n'
+                f'       da[{data_t - last_t:.3f}], cu[{cuda_t - data_t:.3f}], fo[{forw_t - cuda_t:.3f}], ba[{back_t - forw_t:.3f}]'
             )
-            
+        
         last_t = time.time()
     
     return total_loss / total_num
@@ -333,10 +332,10 @@ def test(lg, l_tb_lg, dist, args, epoch, ep_str, iters_per_ep, moco_encoder_q, k
             if it % log_iters == 0:
                 cur_te_acc1 = total_top1 / total_num * 100
                 lg.info(
-                    f'     ep[{ep_str}] it[{it+1}/{iters_per_ep}]: *test acc={cur_te_acc1:5.3f}\n'
-                    f'       da[{data_t-last_t:.3f}], cu[{cuda_t-data_t:.3f}], fe[{fea_t-cuda_t:.3f}], kn[{knn_t-fea_t:.3f}]'
+                    f'     ep[{ep_str}] it[{it + 1}/{iters_per_ep}]: *test acc={cur_te_acc1:5.3f}\n'
+                    f'       da[{data_t - last_t:.3f}], cu[{cuda_t - data_t:.3f}], fe[{fea_t - cuda_t:.3f}], kn[{knn_t - fea_t:.3f}]'
                 )
-                
+            
             last_t = time.time()
     
     return total_top1 / total_num * 100
@@ -368,18 +367,23 @@ def main():
     colorama.init(autoreset=True)
     args = parser.parse_args()
     args.dataset = args.dataset.strip().lower()
-
+    
     args.sh_root = os.getcwd()
     args.job_name = os.path.split(args.sh_root)[-1]
     args.exp_root = os.path.join(args.sh_root, args.exp_dirname)
     os.chdir(args.main_py_rel_path)
     args.prj_root = os.getcwd()
     os.chdir(args.sh_root)
-
+    
     dist = TorchDistManager('auto', 'auto')
     
     main_worker(args, dist)
-    
+
+
+def save_seatable_file(exp_root, kwargs):
+    with open(os.path.join(exp_root, seatable_fname), 'w') as fp:
+        json.dump([exp_root, kwargs], fp)
+
 
 def main_worker(args, dist: TorchDistManager):
     # for i in range(dist.world_size):
@@ -390,30 +394,18 @@ def main_worker(args, dist: TorchDistManager):
     
     descriptions = [f'rk{rk:2d}' for rk in range(dist.world_size)]
     # todo: change desc when doing a grid search
-    localhost_ip = socket.gethostbyname(socket.gethostname())
     
-    table_logging = dist.rank == dist.world_size - 1
-    if table_logging:
-        from utils.seatable import fill_explore_table
-    else:
-        fill_explore_table = None
-    
-    if table_logging:
-        from show import get_ava_port
-        ava_port = get_ava_port()
-        sea_table_rid = fill_explore_table(
-            abs_path=args.exp_root, ds=args.dataset,
-            ep=args.epochs, bs=args.batch_size,
+    if dist.is_master():
+        seatable_kwargs = dict(
+            ds=args.dataset, ep=args.epochs, bs=args.batch_size,
             mom=args.moco_m, T=args.moco_t,
             sbn=args.sbn, mlp=args.mlp, sym=args.moco_symm,
             cos=args.coslr, wp=args.warmup, nowd=args.nowd,
-            pr=0, rem=0, tb=f'{localhost_ip}:{ava_port}'
+            pr=0, rem=0,
         )
-        print(colorama.Fore.LIGHTBLUE_EX + f'port={ava_port}')
-        cmd = f'tensorboard --logdir . --port {ava_port} --bind_all'
-        sp = subprocess.Popen(cmd, shell=True, stderr=subprocess.PIPE, bufsize=-1)
+        save_seatable_file(args.exp_root, seatable_kwargs)
     else:
-        sea_table_rid, sp = None, None
+        seatable_kwargs = None
     
     args.loc_desc = descriptions[dist.rank]
     lg, g_tb_lg, l_tb_lg = create_files(args, dist)
@@ -421,7 +413,7 @@ def main_worker(args, dist: TorchDistManager):
     g_tb_lg: SummaryWriter = g_tb_lg  # just for the code completion (actually is `DistLogger`)
     l_tb_lg: SummaryWriter = l_tb_lg  # just for the code completion (actually is `DistLogger`)
     lg.info(f'{time_str()} => [args]: {pf(args)}\n')
-
+    
     seeds = torch.zeros(dist.world_size).float()
     seeds[dist.rank] = args.seed = args.seed_base + dist.rank
     dist.allreduce(seeds)
@@ -450,15 +442,15 @@ def main_worker(args, dist: TorchDistManager):
     lg.info(f'=> [create]: create train_ds: {args.dataset} (ddp={args.torch_ddp})')
     train_data = CIFAR10Pair(root=ds_root, train=True, transform=train_transform, download=False)
     train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=True)
-
+    
     lg.info(f'=> [create]: create knn_ds: {args.dataset} (ddp={args.torch_ddp})')
     knn_data = CIFAR10(root=ds_root, train=True, transform=test_transform, download=False)
     knn_loader = DataLoader(knn_data, batch_size=args.batch_size * 2, shuffle=False, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=False)
-
+    
     lg.info(f'=> [create]: create test_ds: {args.dataset} (ddp={args.torch_ddp})')
     test_data = CIFAR10(root=ds_root, train=False, transform=test_transform, download=False)
     test_loader = DataLoader(test_data, batch_size=args.batch_size * 2, shuffle=False, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=False)
-
+    
     lg.info(f'=> [create]: create eval_ds: {args.dataset} (ddp={args.torch_ddp})')
     eval_data = CIFAR10(root=ds_root, train=True, transform={['todo']}, download=False)
     eval_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=True)
@@ -505,14 +497,14 @@ def main_worker(args, dist: TorchDistManager):
     epoch_speed = AverageMeter(3)
     tr_loss_avg = AverageMeter(tr_iters_per_ep)
     for epoch in range(epoch_start, args.epochs):
-        ep_str = f'%{len(str(args.epochs))}d' % (epoch+1)
+        ep_str = f'%{len(str(args.epochs))}d' % (epoch + 1)
         if epoch % 5 == 0 and dist.is_master():
             print(colorama.Fore.CYAN + f'@@@@@ {args.exp_root}')
             torch.cuda.empty_cache()
-
+        
         ep_start_t = time.time()
         tr_loss = train(lg, l_tb_lg, dist, args, epoch, ep_str, tr_iters_per_ep, model, train_loader, optimizer, tr_loss_avg)
-        l_tb_lg.add_scalars('pretrain/tr_loss', {'ep': tr_loss}, (epoch+1) * tr_iters_per_ep)
+        l_tb_lg.add_scalars('pretrain/tr_loss', {'ep': tr_loss}, (epoch + 1) * tr_iters_per_ep)
         
         knn_acc1 = test(lg, l_tb_lg, dist, args, epoch, ep_str, te_iters_per_ep, model.encoder_q, knn_loader, test_loader)
         topk_acc1s.push_q(knn_acc1)
@@ -520,23 +512,21 @@ def main_worker(args, dist: TorchDistManager):
         l_tb_lg.add_scalar('pretrain/knn_acc1', knn_acc1, epoch)
         
         # torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer': optimizer.state_dict(), }, args.results_dir + '/model_last.pth')
-
-        remain_time, finish_time = epoch_speed.time_preds(args.epochs - (epoch+1))
+        
+        remain_time, finish_time = epoch_speed.time_preds(args.epochs - (epoch + 1))
         lg.info(
             f'=> [ep {ep_str}/{args.epochs}]: L={tr_loss:.4f}, acc={knn_acc1:5.2f},        best={best_knn_acc1:5.2f}\n'
             f'   [{str(remain_time)}] ({finish_time})'
         )
-        if table_logging:
-            fill_explore_table(
-                abs_path=None, rid=sea_table_rid,
-                knn_acc=knn_acc1, pr=(epoch+1) / args.epochs, rem=remain_time.seconds
-            )
+        if dist.is_master():
+            seatable_kwargs.update(dict(knn_acc=knn_acc1, pr=(epoch + 1) / args.epochs, rem=remain_time.seconds))
+            save_seatable_file(args.exp_root, seatable_kwargs)
         
         epoch_speed.update(time.time() - ep_start_t)
         if epoch == epoch_start:
             print(colorama.Fore.GREEN + f'[rk{dist.rank:2d}] barrier test')
             dist.barrier()
-
+    
     topk_knn_acc1 = sum(topk_acc1s) / len(topk_acc1s)
     dt = time.time() - start_pretrain_t
     if not args.torch_ddp:
@@ -554,27 +544,20 @@ def main_worker(args, dist: TorchDistManager):
             f' mean-top accs @ (min={topk_accs.min():.3f}, mean={topk_accs.mean():.3f}, std={topk_accs.std():.3f}) {str(topk_accs).replace(chr(10), " ")})\n'
             f' best     accs @ (min={best_accs.min():.3f}, mean={best_accs.mean():.3f}, std={best_accs.std():.3f}) {str(best_accs).replace(chr(10), " ")})\n\n\n'
         )
-
-        if table_logging:
-            fill_explore_table(
-                abs_path=None, rid=sea_table_rid,
-                knn_acc=best_accs.mean().item(), pr=1., rem=0
-            )
         
+        if dist.is_master():
+            seatable_kwargs.update(dict(knn_acc=best_accs.mean().item(), pr=1., rem=0))
+            save_seatable_file(args.exp_root, seatable_kwargs)
+    
     else:
         assert False
     
     # linear evaluation
     epoch_speed = AverageMeter(3)
     
-    if table_logging:
-        sp.kill()
     g_tb_lg.close()
     l_tb_lg.close()
     dist.finalize()
-
-    with open(os.path.join(args.exp_root, '.seatable_rid.json')) as fp:
-        json.dump(sea_table_rid, fp)
 
 
 if __name__ == '__main__':

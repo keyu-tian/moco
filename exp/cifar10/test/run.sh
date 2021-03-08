@@ -31,10 +31,6 @@ echo -e "\033[36m${RESULT#*@}\033[0m"
 
 fg 1
 
-#cd "${EXP_DIR}" || exit
-#python "${REL_PATH}../show.py"
-
-
 #--warmup
 #--nowd
 #--mlp
