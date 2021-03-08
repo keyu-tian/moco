@@ -15,10 +15,10 @@ python -u -m main_cifar \
 --exp_dirname="${EXP_DIR}" \
 --seed_base=0 \
 --moco_m=0.99 \
---moco_t=0.1 \
+--moco_t=0.2 \
 --sbn \
 --moco_symm \
---epochs=2 \
+--epochs=200 \
 --coslr \
 --dataset=cifar10 \
 --num_workers=4 \
@@ -29,7 +29,7 @@ echo ""
 echo -e "\033[36mat ${PWD#}/${EXP_DIR}\033[0m"
 echo -e "\033[36m${RESULT#*@}\033[0m"
 
-fg
+fg 
 
 touch "${EXP_DIR}".terminate
 
