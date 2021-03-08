@@ -76,13 +76,10 @@ def main():
     print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] found an ava port={ava_port}')
     cmd = f'tensorboard --logdir . --port {ava_port} --bind_all'
     sp = subprocess.Popen(cmd, shell=True, stderr=subprocess.PIPE, bufsize=-1)
+    tb_ip_port = f'{socket.gethostbyname(socket.gethostname())}:{ava_port}'
     
     with open(seatable_file, 'r') as fp:
         last_dd = json.load(fp)
-        last_dd[1]['tb'] = f'{socket.gethostbyname(socket.gethostname())}:{ava_port}'
-    
-    with open(seatable_file, 'w') as fp:
-        json.dump(last_dd, fp)
     
     try:
         rid = None
@@ -97,7 +94,7 @@ def main():
             last_dd = dd
             abs_path, kwargs = dd
             print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] updating... (rid={rid})')
-            rid = create_or_upd_explore_table(base, abs_path, rid, **kwargs)
+            rid = create_or_upd_explore_table(base, abs_path, rid, **kwargs, tb=tb_ip_port)
             print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] updated')
             if os.path.exists(terminate_file):
                 os.remove(terminate_file)
