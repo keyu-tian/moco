@@ -62,7 +62,7 @@ def main():
     terminate_file = f'{exp_root}.terminate'
     
     while not os.path.exists(seatable_file):
-        time.sleep(20)
+        time.sleep(60)
         print(colorama.Fore.GREEN + '[monitor] waiting for the seatable file...')
         if os.path.exists(terminate_file):
             os.remove(terminate_file)
@@ -84,7 +84,7 @@ def main():
     try:
         rid = None
         while True:
-            time.sleep(5)
+            time.sleep(10)
             with open(seatable_file, 'r') as fp:
                 dd = json.load(fp)
             if dd == last_dd:

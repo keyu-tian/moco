@@ -38,7 +38,7 @@ class DistLogger(object):
         return getattr(self._lg, attr) if self._verbose else DistLogger.do_nothing
 
     def __del__(self):
-        if self._lg is not None:
+        if self._lg is not None and hasattr(self._lg, 'close'):
             self._lg.close()
 
 
