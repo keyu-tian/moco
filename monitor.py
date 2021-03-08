@@ -1,6 +1,7 @@
 import datetime
 import json
 import os
+import random
 import socket
 import subprocess
 import sys
@@ -65,7 +66,7 @@ def main():
     terminate_file = f'{exp_root}.terminate'
     
     while not os.path.exists(seatable_file):
-        time.sleep(60)
+        time.sleep(120)
         print(colorama.Fore.GREEN + '[monitor] waiting for the seatable file...')
         if os.path.exists(terminate_file):
             os.remove(terminate_file)
@@ -84,7 +85,7 @@ def main():
     try:
         rid = None
         while True:
-            time.sleep(20)
+            time.sleep(15)
             with open(seatable_file, 'r') as fp:
                 dd = json.load(fp)
             if dd == last_dd:
@@ -94,9 +95,12 @@ def main():
             last_dd = dd
             abs_path, kwargs = dd
             des = 'creat' if rid is None else 'updat'
-            print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] {des}ing... (rid={rid})')
+            prt = random.randrange(5) == 0
+            if prt:
+                print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] {des}ing... (rid={rid})')
             rid = create_or_upd_explore_table(base, abs_path, rid, tb=tb_ip_port, **kwargs)
-            print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] {des}ed')
+            if prt:
+                print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] {des}ed')
             if os.path.exists(terminate_file):
                 os.remove(terminate_file)
                 print(colorama.Fore.CYAN + '[monitor] terminated.')
