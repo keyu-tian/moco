@@ -5,6 +5,7 @@ import socket
 import subprocess
 import sys
 import time
+from copy import deepcopy
 
 import colorama
 from seatable_api import Base
@@ -31,11 +32,13 @@ def record_dt(dd):
 def create_or_upd_explore_table(base, abs_path=None, rid=None, **kwargs):
     t_name = 'explore'
     tags = []
+    new_kw = deepcopy(kwargs)
     for k, v in kwargs.items():
         if k in tag_choices and v:
             tags.append(k)
-            kwargs.pop(k)
+            new_kw.pop(k)
     
+    kwargs = new_kw
     dd = dict(tags=tags, **kwargs)
     if abs_path is not None:
         dd['abs_path'] = abs_path
