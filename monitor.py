@@ -84,7 +84,7 @@ def main():
     try:
         rid = None
         while True:
-            time.sleep(10)
+            time.sleep(20)
             with open(seatable_file, 'r') as fp:
                 dd = json.load(fp)
             if dd == last_dd:
