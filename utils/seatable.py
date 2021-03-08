@@ -22,6 +22,7 @@ def record_dt(dd):
 
 
 def fill_explore_table(abs_path=None, rid=None, **kwargs):
+    assert abs_path is None or rid is None
     t_name = 'explore'
     tags = []
     for k, v in kwargs.items():

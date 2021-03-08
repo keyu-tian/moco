@@ -381,8 +381,13 @@ def main():
     
 
 def main_worker(gpu_dev_idx, args, dist: TorchDistManager):
-    assert dist.dev_idx == gpu_dev_idx
     dist.initialize()
+    for i in range(dist.world_size):
+        if i == dist.rank:
+            print(f'[[[[ rk {dist.rank} ]]]]: dist.dev_idx={dist.dev_idx}, gpu_dev_idx={gpu_dev_idx}')
+        dist.barrier()
+    assert dist.dev_idx == gpu_dev_idx
+    
     descriptions = [f'rk{rk:2d}' for rk in range(dist.world_size)]
     # todo: change desc when doing a grid search
     localhost_ip = socket.gethostbyname(socket.gethostname())
@@ -523,7 +528,7 @@ def main_worker(gpu_dev_idx, args, dist: TorchDistManager):
         )
         if table_logging:
             fill_explore_table(
-                abs_path=args.exp_root, rid=sea_table_rid,
+                abs_path=None, rid=sea_table_rid,
                 knn_acc=knn_acc1, pr=(epoch+1) / args.epochs, rem=remain_time.seconds
             )
         
@@ -552,7 +557,7 @@ def main_worker(gpu_dev_idx, args, dist: TorchDistManager):
 
         if table_logging:
             fill_explore_table(
-                abs_path=args.exp_root, rid=sea_table_rid,
+                abs_path=None, rid=sea_table_rid,
                 knn_acc=best_accs.mean().item(), pr=1., rem=0
             )
         
