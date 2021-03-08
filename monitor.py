@@ -59,10 +59,14 @@ def main():
     exp_dir_name = sys.argv[1]
     exp_root = os.path.join(os.getcwd(), exp_dir_name)
     seatable_file = os.path.join(exp_root, seatable_fname)
+    terminate_file = f'{exp_root}.terminate'
     
     while not os.path.exists(seatable_file):
         print(colorama.Fore.GREEN + '[monitor] waiting for the seatable file...')
         time.sleep(20)
+        if os.path.exists(terminate_file):
+            os.remove(terminate_file)
+            exit(-1)
     
     ava_port = get_ava_port()
     print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] found an ava port={ava_port}')
@@ -91,6 +95,9 @@ def main():
             rid = create_or_upd_explore_table(base, abs_path, rid, **kwargs)
             print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] updated')
             time.sleep(5)
+            if os.path.exists(terminate_file):
+                os.remove(terminate_file)
+                exit(-1)
     
     except Exception as e:
         sp.kill()

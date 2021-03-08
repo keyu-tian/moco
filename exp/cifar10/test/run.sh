@@ -33,6 +33,8 @@ echo -e "\033[36m${RESULT#*@}\033[0m"
 
 fg 1
 
+touch "${EXP_DIR}".terminate
+
 #--warmup
 #--nowd
 #--mlp
