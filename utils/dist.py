@@ -52,18 +52,17 @@ class TorchDistManager:
         
         self.backend, self.node0_addr_port, self.world_size, self.rank = backend, node0_addr_port, world_size, rank
         self.node0_addr = self.node0_addr_port[self.node0_addr_port.find('//') + 2:self.node0_addr_port.rfind(':')]
-        self.ngpus_per_node, self.dev_idx = ..., ...
+        self.ngpus_per_node, self.dev_idx = torch.cuda.device_count(), ...
     
     def initialize(self):
         dist.init_process_group(
             backend=self.backend, init_method=self.node0_addr_port,
             world_size=self.world_size, rank=self.rank
         )
-        self.ngpus_per_node = gres_gpu = torch.cuda.device_count()      # num gpus per node
         self.dev_idx: int = int(os.environ['SLURM_LOCALID'])            # equals to rank % gres_gpu
         torch.cuda.set_device(self.dev_idx)
         
-        print(Fore.CYAN + f'{time_str()}[dist init] rank[{self.rank:02d}]: node0_addr_port={self.node0_addr_port}, gres_gpu(ngpus_per_node)={gres_gpu}, dev_idx={self.dev_idx}')
+        print(Fore.CYAN + f'{time_str()}[dist init] rank[{self.rank:02d}]: node0_addr_port={self.node0_addr_port}, gres_gpu(ngpus_per_node)={self.ngpus_per_node}, dev_idx={self.dev_idx}')
         
         assert torch.distributed.is_initialized()
         
