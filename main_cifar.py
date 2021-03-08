@@ -395,18 +395,6 @@ def main_worker(args, dist: TorchDistManager):
     descriptions = [f'rk{rk:2d}' for rk in range(dist.world_size)]
     # todo: change desc when doing a grid search
     
-    if dist.is_master():
-        seatable_kwargs = dict(
-            ds=args.dataset, ep=args.epochs, bs=args.batch_size,
-            mom=args.moco_m, T=args.moco_t,
-            sbn=args.sbn, mlp=args.mlp, sym=args.moco_symm,
-            cos=args.coslr, wp=args.warmup, nowd=args.nowd,
-            pr=0, rem=0,
-        )
-        save_seatable_file(args.exp_root, seatable_kwargs)
-    else:
-        seatable_kwargs = None
-    
     args.loc_desc = descriptions[dist.rank]
     lg, g_tb_lg, l_tb_lg = create_files(args, dist)
     lg: Logger = lg  # just for the code completion (actually is `DistLogger`)
@@ -422,6 +410,18 @@ def main_worker(args, dist: TorchDistManager):
     same_seed = args.torch_ddp
     set_seed(args.seed_base if same_seed else args.seed)
     lg.info(f'=> [seed]: using {"the same seed" if same_seed else "diff seeds"}')
+
+    if dist.is_master():
+        seatable_kwargs = dict(
+            ds=args.dataset, ep=args.epochs, bs=args.batch_size,
+            mom=args.moco_m, T=args.moco_t,
+            sbn=args.sbn, mlp=args.mlp, sym=args.moco_symm,
+            cos=args.coslr, wp=args.warmup, nowd=args.nowd,
+            pr=0, rem=0,
+        )
+        save_seatable_file(args.exp_root, seatable_kwargs)
+    else:
+        seatable_kwargs = None
     
     assert args.dataset == 'cifar10'
     train_transform = transforms.Compose([

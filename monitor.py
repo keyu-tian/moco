@@ -61,7 +61,7 @@ def main():
     seatable_file = os.path.join(exp_root, seatable_fname)
     
     while not os.path.exists(seatable_file):
-        print(colorama.Fore.GREEN + '[monitor] waiting for creating seatable temp file...')
+        print(colorama.Fore.GREEN + '[monitor] waiting for the seatable file...')
         time.sleep(20)
     
     ava_port = get_ava_port()
