@@ -1,174 +1,100 @@
 import argparse
-import datetime
-import json
+import socket
 import math
 import os
+import json
+import subprocess
+import time
 from functools import partial
-from pprint import pprint as pp
+from logging import Logger
+from pprint import pformat as pf
 
-import pandas as pd
+import colorama
 import torch
+import torch.multiprocessing as mp
 import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
+from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import CIFAR10
-from torchvision.models import resnet
-from tqdm import tqdm
 
-
-def cur_dt_str():
-    return (datetime.timedelta(hours=8) + datetime.datetime.now()).strftime("%m-%d %H-%M-%S")
+from model import model_entry
+from model.bn import SplitBatchNorm
+from show import get_ava_port
+from utils.dist import TorchDistManager
+from utils.file import create_files
+from utils.misc import time_str, filter_params, set_seed, init_params, AverageMeter, MaxHeap
 
 
 parser = argparse.ArgumentParser(description='Train MoCo on CIFAR-10')
 
-parser.add_argument('-a', '--arch', default='resnet18')
+# basic
+parser.add_argument('--torch_ddp', action='store_true', help='using DistributedDataParallel')
+parser.add_argument('--main_py_rel_path', type=str, required=True)
+parser.add_argument('--exp_dirname', type=str, required=True)
+parser.add_argument('--resume_ckpt', default=None, type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
+parser.add_argument('--seed_base', default=0, type=int)
+parser.add_argument('--log_freq', default=2, type=int)
 
-# lr: 0.06 for batch 512 (or 0.03 for batch 256)
-parser.add_argument('--lr', '--learning-rate', default=0.06, type=float, metavar='LR', help='initial learning rate', dest='lr')
+# moco
+parser.add_argument('--arch', default='resnet18')
+parser.add_argument('--moco_dim', default=128, type=int, help='feature dimension')
+parser.add_argument('--moco_k', default=4096, type=int, help='queue size; number of negative keys')
+parser.add_argument('--moco_m', default=0.99, type=float, help='moco momentum of updating key encoder')
+parser.add_argument('--moco_t', default=0.1, type=float, help='softmax temperature')
+# parser.add_argument('--bn_splits', default=8, type=int, help='simulate multi-gpu behavior of BatchNorm in one gpu; 1 is SyncBatchNorm in multi-gpu')
+parser.add_argument('--sbn', action='store_true', help='use synchronized batchnorm')
+parser.add_argument('--mlp', action='store_true', help='use mlp')
+parser.add_argument('--moco_symm', action='store_true', help='use a symmetric loss function that backprops to both crops')
+
+# training
 parser.add_argument('--epochs', default=200, type=int, metavar='N', help='number of total epochs to run')
-parser.add_argument('--schedule', default=[120, 160], nargs='*', type=int, help='learning rate schedule (when to drop lr by 10x); does not take effect if --cos is on')
-parser.add_argument('--cos', action='store_true', help='use cosine lr schedule')
-
-parser.add_argument('--batch-size', default=512, type=int, metavar='N', help='mini-batch size')
+parser.add_argument('--batch_size', default=512, type=int, metavar='N', help='mini-batch size')
+# lr: 0.06 for batch 512 (or 0.03 for batch 256)
+parser.add_argument('--lr', '--learning_rate', default=0.06, type=float, metavar='LR', help='initial learning rate', dest='lr')
+parser.add_argument('--schedule', default=[120, 160], nargs='*', type=int, help='learning rate schedule (when to drop lr by 10x); does not take effect if --coslr is on')
+parser.add_argument('--coslr', action='store_true', help='use cosine lr schedule')
+parser.add_argument('--warmup', action='store_true', help='use warming up')
 parser.add_argument('--wd', default=5e-4, type=float, metavar='W', help='weight decay')
+parser.add_argument('--nowd', action='store_true', help='no wd for params of bn and bias')
 
-# moco specific configs:
-parser.add_argument('--moco-dim', default=128, type=int, help='feature dimension')
-parser.add_argument('--moco-k', default=4096, type=int, help='queue size; number of negative keys')
-parser.add_argument('--moco-m', default=0.99, type=float, help='moco momentum of updating key encoder')
-parser.add_argument('--moco-t', default=0.1, type=float, help='softmax temperature')
-
-parser.add_argument('--bn-splits', default=8, type=int, help='simulate multi-gpu behavior of BatchNorm in one gpu; 1 is SyncBatchNorm in multi-gpu')
-
-parser.add_argument('--symmetric', action='store_true', help='use a symmetric loss function that backprops to both crops')
+# data
+parser.add_argument('--dataset', default='cifar10', choices=['cifar10', 'cifar100', 'imagenet'])
+parser.add_argument('--ds_root', default='', help='dataset root')
+parser.add_argument('--num_workers', default=4, type=int)
+parser.add_argument('--pin_mem', action='store_true')
 
 # knn monitor
-parser.add_argument('--knn-k', default=200, type=int, help='k in kNN monitor')
-parser.add_argument('--knn-t', default=0.1, type=float, help='softmax temperature in kNN monitor; could be different with moco-t')
+parser.add_argument('--knn_k', default=200, type=int, help='k in kNN monitor')
+parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperature in kNN monitor; could be different with moco-t')
 
-# utils
-parser.add_argument('--resume', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
-parser.add_argument('--results-dir', default='', type=str, metavar='PATH', help='path to cache (default: none)')
 
-'''
-args = parser.parse_args()  # running in command line
-'''
-args = parser.parse_args('')  # running in ipynb
 
-# set command line arguments here when running in ipynb
-args.epochs = 200
-args.cos = True
-args.schedule = []  # cos in use
-args.symmetric = True
-if args.results_dir == '':
-    args.results_dir = f'/content/drive/MyDrive/moco/moco_on_cifar10/raw_exp-{cur_dt_str()}'
-
-pp(vars(args))
+# # set command line arguments here when running in ipynb
+# args.epochs = 200
+# args.coslr = True
+# args.schedule = []  # coslr in use
+# args.symmetric = True
+# if args.results_dir == '':
+#     args.results_dir = f'/content/drive/MyDrive/moco/moco_on_cifar10/raw_exp-{cur_dt_str()}'
+#
+# pp(vars(args))
 
 
 class CIFAR10Pair(CIFAR10):
-    """CIFAR10 Dataset.
-    """
-    
     def __getitem__(self, index):
         img = self.data[index]
         img = Image.fromarray(img)
-        
-        if self.transform is not None:
-            im_1 = self.transform(img)
-            im_2 = self.transform(img)
+        im_1 = self.transform(img)
+        im_2 = self.transform(img)
         
         return im_1, im_2
 
 
-train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(32),
-    transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
-    transforms.RandomGrayscale(p=0.2),
-    transforms.ToTensor(),
-    transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])])
-
-test_transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])])
-
-# data prepare
-ds_root = '/content/drive/MyDrive/datasets/cifar10'
-train_data = CIFAR10Pair(root=ds_root, train=True, transform=train_transform, download=True)
-train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=16, pin_memory=True, drop_last=True)
-
-memory_data = CIFAR10(root=ds_root, train=True, transform=test_transform, download=True)
-memory_loader = DataLoader(memory_data, batch_size=args.batch_size, shuffle=False, num_workers=16, pin_memory=True)
-
-test_data = CIFAR10(root=ds_root, train=False, transform=test_transform, download=True)
-test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=False, num_workers=16, pin_memory=True)
-
-
-# SplitBatchNorm: simulate multi-gpu behavior of BatchNorm in one gpu by splitting alone the batch dimension
-# implementation adapted from https://github.com/davidcpage/cifar10-fast/blob/master/torch_backend.py
-class SplitBatchNorm(nn.BatchNorm2d):
-    def __init__(self, num_features, num_splits, **kw):
-        super().__init__(num_features, **kw)
-        self.num_splits = num_splits
-    
-    def forward(self, input):
-        N, C, H, W = input.shape
-        if self.training or not self.track_running_stats:
-            running_mean_split = self.running_mean.repeat(self.num_splits)
-            running_var_split = self.running_var.repeat(self.num_splits)
-            outcome = nn.functional.batch_norm(
-                input.view(-1, C * self.num_splits, H, W), running_mean_split, running_var_split,
-                self.weight.repeat(self.num_splits), self.bias.repeat(self.num_splits),
-                True, self.momentum, self.eps).view(N, C, H, W)
-            self.running_mean.data.copy_(running_mean_split.view(self.num_splits, C).mean(dim=0))
-            self.running_var.data.copy_(running_var_split.view(self.num_splits, C).mean(dim=0))
-            return outcome
-        else:
-            return nn.functional.batch_norm(
-                input, self.running_mean, self.running_var,
-                self.weight, self.bias, False, self.momentum, self.eps)
-
-
-class ModelBase(nn.Module):
-    """
-    Common CIFAR ResNet recipe.
-    Comparing with ImageNet ResNet recipe, it:
-    (i) replaces conv1 with kernel=3, str=1
-    (ii) removes pool1
-    """
-    
-    def __init__(self, feature_dim=128, arch=None, bn_splits=16):
-        super(ModelBase, self).__init__()
-        
-        # use split batchnorm
-        norm_layer = partial(SplitBatchNorm, num_splits=bn_splits) if bn_splits > 1 else nn.BatchNorm2d
-        resnet_arch = getattr(resnet, arch)
-        net = resnet_arch(num_classes=feature_dim, norm_layer=norm_layer)
-        
-        self.net = []
-        for name, module in net.named_children():
-            if name == 'conv1':
-                module = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
-            if isinstance(module, nn.MaxPool2d):
-                continue
-            if isinstance(module, nn.Linear):
-                self.net.append(nn.Flatten(1))
-            self.net.append(module)
-        
-        self.net = nn.Sequential(*self.net)
-    
-    def forward(self, x):
-        x = self.net(x)
-        # note: not normalized here
-        return x
-
-
 class ModelMoCo(nn.Module):
-    def __init__(self, dim=128, K=4096, m=0.99, T=0.1, arch='resnet18', bn_splits=8, symmetric=True):
+    def __init__(self, lg, torch_ddp=False, arch='resnet18', dim=128, K=4096, m=0.99, T=0.1, sbn=False, mlp=False, symmetric=True):
         super(ModelMoCo, self).__init__()
         
         self.K = K
@@ -177,8 +103,19 @@ class ModelMoCo(nn.Module):
         self.symmetric = symmetric
         
         # create the encoders
-        self.encoder_q = ModelBase(feature_dim=dim, arch=arch, bn_splits=bn_splits)
-        self.encoder_k = ModelBase(feature_dim=dim, arch=arch, bn_splits=bn_splits)
+        # todo: torch_ddp
+        assert not torch_ddp
+        bn_splits = 1 if sbn else 8
+        norm_layer = partial(SplitBatchNorm, num_splits=bn_splits) if bn_splits > 1 else nn.BatchNorm2d
+        self.encoder_q = model_entry(model_name=arch, num_classes=dim, norm_layer=norm_layer)
+        self.encoder_k = model_entry(model_name=arch, num_classes=dim, norm_layer=norm_layer)
+
+        if mlp:  # hack: brute-force replacement
+            dim_mlp = self.encoder_q.fc.weight.shape[1]
+            self.encoder_q.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.encoder_q.fc)
+            self.encoder_k.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.encoder_k.fc)
+        
+        init_params(self.encoder_q, output=lg.info)
         
         for param_q, param_k in zip(self.encoder_q.parameters(), self.encoder_k.parameters()):
             param_k.data.copy_(param_q.data)  # initialize
@@ -294,81 +231,114 @@ class ModelMoCo(nn.Module):
         return loss
 
 
-# create model
-model = ModelMoCo(
-    dim=args.moco_dim,
-    K=args.moco_k,
-    m=args.moco_m,
-    T=args.moco_t,
-    arch=args.arch,
-    bn_splits=args.bn_splits,
-    symmetric=args.symmetric,
-).cuda()
-print(model.encoder_q)
+def adjust_learning_rate(optimizer, cur_iter, max_iter, max_lr, args):
+    """Decay the learning rate based on schedule"""
+    warmup_iters = max_iter // 100
+    if args.warmup and cur_iter <= warmup_iters:
+        ratio = cur_iter / warmup_iters
+        base_lr = max_lr / 5
+        lr = base_lr + ratio * (max_lr - base_lr)
+    
+    elif args.cos:  # cosine lr schedule
+        if args.warmup:
+            ratio = (cur_iter - warmup_iters) / (max_iter - 1 - warmup_iters)
+        else:
+            ratio = cur_iter / (max_iter - 1)
+        lr = max_lr * 0.5 * (1. + math.cos(math.pi * ratio))
+    else:  # stepwise lr schedule
+        lr = max_lr
+        for milestone in args.schedule:
+            lr *= 0.1 if cur_iter / max_iter >= milestone else 1.
+    
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+    
+    return lr
 
 
 # train for one epoch
-def train(net, data_loader, train_optimizer, epoch, args):
-    net.train()
-    adjust_learning_rate(optimizer, epoch, args)
+def train(lg, l_tb_lg, dist, args, epoch, ep_str, iters_per_ep, moco_model, train_ld, train_op, tr_loss_avg):
+    moco_model.train()
+    log_iters = iters_per_ep // args.log_freq
     
-    total_loss, total_num, train_bar = 0.0, 0, tqdm(data_loader)
-    for im_1, im_2 in train_bar:
+    total_loss, total_num = 0.0, 0
+    last_t = time.time()
+    for it, (im_1, im_2) in enumerate(train_ld):
+        data_t = time.time()
+        cur_iter = it + epoch * iters_per_ep
+        max_iter = args.epochs * iters_per_ep
+        adjust_learning_rate(train_op, cur_iter, max_iter, args.lr, args)
+        
         im_1, im_2 = im_1.cuda(non_blocking=True), im_2.cuda(non_blocking=True)
+        cuda_t = time.time()
         
-        loss = net(im_1, im_2)
+        loss = moco_model(im_1, im_2)
+        forw_t = time.time()
         
-        train_optimizer.zero_grad()
+        train_op.zero_grad()
         loss.backward()
-        train_optimizer.step()
+        train_op.step()
+        back_t = time.time()
         
-        total_num += data_loader.batch_size
-        total_loss += loss.item() * data_loader.batch_size
-        train_bar.set_description('Train Epoch: [{}/{}], lr: {:.6f}, Loss: {:.4f}'.format(epoch, args.epochs, optimizer.param_groups[0]['lr'], total_loss / total_num))
+        total_num += train_ld.batch_size
+        total_loss += loss.item() * train_ld.batch_size
+        
+        cur_avg_loss = total_loss / total_num
+        tr_loss_avg.update(cur_avg_loss)
+        if cur_iter % log_iters == 0:
+            l_tb_lg.add_scalars('pretrain/tr_loss', {'it': tr_loss_avg.avg}, cur_iter)
+            lg.info(
+                f'     ep[{ep_str}] it[{it+1}/{iters_per_ep}]: L={cur_avg_loss:.4f} ({tr_loss_avg.avg:.4f})\n'
+                f'       da[{data_t-last_t:.3f}], cu[{cuda_t-data_t:.3f}], fo[{forw_t-cuda_t:.3f}], ba[{back_t-forw_t:.3f}]'
+            )
+            
+        last_t = time.time()
     
     return total_loss / total_num
 
 
-# lr scheduler for training
-def adjust_learning_rate(optimizer, epoch, args):
-    """Decay the learning rate based on schedule"""
-    lr = args.lr
-    if args.cos:  # cosine lr schedule
-        lr *= 0.5 * (1. + math.cos(math.pi * epoch / args.epochs))
-    else:  # stepwise lr schedule
-        for milestone in args.schedule:
-            lr *= 0.1 if epoch >= milestone else 1.
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
-
-
 # test using a knn monitor
-def test(net, memory_data_loader, test_data_loader, epoch, args):
-    net.eval()
-    classes = len(memory_data_loader.dataset.classes)
+def test(lg, l_tb_lg, dist, args, epoch, ep_str, iters_per_ep, moco_encoder_q, knn_ld, test_ld):
+    log_iters = iters_per_ep // args.log_freq
+    
+    moco_encoder_q.eval()
+    num_classes = len(knn_ld.dataset.classes)
     total_top1, total_top5, total_num, feature_bank = 0.0, 0.0, 0, []
     with torch.no_grad():
         # generate feature bank
-        for data, target in tqdm(memory_data_loader, desc='Feature extracting'):
-            feature = net(data.cuda(non_blocking=True))
+        for it, (data, target) in enumerate(knn_ld):
+            feature = moco_encoder_q(data.cuda(non_blocking=True))
             feature = F.normalize(feature, dim=1)
             feature_bank.append(feature)
         # [D, N]
         feature_bank = torch.cat(feature_bank, dim=0).t().contiguous()
         # [N]
-        feature_labels = torch.tensor(memory_data_loader.dataset.targets, device=feature_bank.device)
+        feature_labels = torch.tensor(knn_ld.dataset.targets, device=feature_bank.device)
+        
         # loop test data to predict the label by weighted knn search
-        test_bar = tqdm(test_data_loader)
-        for data, target in test_bar:
+        last_t = time.time()
+        for it, (data, target) in enumerate(test_ld):
+            data_t = time.time()
             data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
-            feature = net(data)
+            cuda_t = time.time()
+            feature = moco_encoder_q(data)
             feature = F.normalize(feature, dim=1)
+            fea_t = time.time()
             
-            pred_labels = knn_predict(feature, feature_bank, feature_labels, classes, args.knn_k, args.knn_t)
+            pred_labels = knn_predict(feature, feature_bank, feature_labels, num_classes, args.knn_k, args.knn_t)
+            knn_t = time.time()
             
             total_num += data.size(0)
             total_top1 += (pred_labels[:, 0] == target).float().sum().item()
-            test_bar.set_description('Test Epoch: [{}/{}] Acc@1:{:.2f}%'.format(epoch, args.epochs, total_top1 / total_num * 100))
+            
+            if it % log_iters == 0:
+                cur_te_acc1 = total_top1 / total_num * 100
+                lg.info(
+                    f'     ep[{ep_str}] it[{it+1}/{iters_per_ep}]: *test acc={cur_te_acc1:5.3f}\n'
+                    f'       da[{data_t-last_t:.3f}], cu[{cuda_t-data_t:.3f}], fe[{fea_t-cuda_t:.3f}], kn[{knn_t-fea_t:.3f}]'
+                )
+                
+            last_t = time.time()
     
     return total_top1 / total_num * 100
 
@@ -395,34 +365,212 @@ def knn_predict(feature, feature_bank, feature_labels, classes, knn_k, knn_t):
     return pred_labels
 
 
-# define optimizer
-optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.wd, momentum=0.9)
+def main():
+    colorama.init(autoreset=True)
+    args = parser.parse_args()
+    args.dataset = args.dataset.strip().lower()
 
-# load model if resume
-epoch_start = 1
-if args.resume is not '':
-    checkpoint = torch.load(args.resume)
-    model.load_state_dict(checkpoint['state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer'])
-    epoch_start = checkpoint['epoch'] + 1
-    print('Loaded from: {}'.format(args.resume))
+    args.sh_root = os.getcwd()
+    args.job_name = os.path.split(args.sh_root)[-1]
+    args.exp_root = os.path.join(args.sh_root, args.exp_dirname)
+    os.chdir(args.main_py_rel_path)
+    args.prj_root = os.getcwd()
+    os.chdir(args.sh_root)
 
-# logging
-results = {'train_loss': [], 'test_acc@1': []}
-if not os.path.exists(args.results_dir):
-    os.mkdir(args.results_dir)
-# dump args
-with open(args.results_dir + '/args.json', 'w') as fid:
-    json.dump(args.__dict__, fid, indent=2)
+    dist = TorchDistManager('auto', 'auto')
+    mp.spawn(main_worker, nprocs=dist.ngpus_per_node, args=(args, dist))
+    
 
-# training loop
-for epoch in range(epoch_start, args.epochs + 1):
-    train_loss = train(model, train_loader, optimizer, epoch, args)
-    results['train_loss'].append(train_loss)
-    test_acc_1 = test(model.encoder_q, memory_loader, test_loader, epoch, args)
-    results['test_acc@1'].append(test_acc_1)
-    # save statistics
-    data_frame = pd.DataFrame(data=results, index=range(epoch_start, epoch + 1))
-    data_frame.to_csv(args.results_dir + '/log.csv', index_label='epoch')
-    # save model
-    torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer': optimizer.state_dict(), }, args.results_dir + '/model_last.pth')
+def main_worker(gpu_dev_idx, args, dist: TorchDistManager):
+    assert dist.dev_idx == gpu_dev_idx
+    dist.initialize()
+    descriptions = [f'rk{rk:2d}' for rk in range(dist.world_size)]
+    # todo: change desc when doing a grid search
+    localhost_ip = socket.gethostbyname(socket.gethostname())
+    
+    table_logging = dist.rank == dist.world_size - 1
+    if table_logging:
+        from utils.seatable import fill_explore_table
+    else:
+        fill_explore_table = None
+    
+    if table_logging:
+        ava_port = get_ava_port()
+        sea_table_rid = fill_explore_table(
+            abs_path=args.exp_root, ds=args.dataset,
+            ep=args.epochs, bs=args.batch_size,
+            mom=args.moco_m, T=args.moco_t,
+            sbn=args.sbn, mlp=args.mlp, sym=args.moco_symm,
+            cos=args.coslr, wp=args.warmup, nowd=args.nowd,
+            pr=0, rem=0, tb=f'{localhost_ip}:{ava_port}'
+        )
+        print(colorama.Fore.LIGHTBLUE_EX + f'port={ava_port}')
+        cmd = f'tensorboard --logdir . --port {ava_port} --bind_all'
+        sp = subprocess.Popen(cmd, shell=True, stderr=subprocess.PIPE, bufsize=-1)
+    else:
+        sea_table_rid, sp = None, None
+    
+    args.loc_desc = descriptions[dist.rank]
+    lg, g_tb_lg, l_tb_lg = create_files(args, dist)
+    lg: Logger = lg  # just for the code completion (actually is `DistLogger`)
+    g_tb_lg: SummaryWriter = g_tb_lg  # just for the code completion (actually is `DistLogger`)
+    l_tb_lg: SummaryWriter = l_tb_lg  # just for the code completion (actually is `DistLogger`)
+    lg.info(f'{time_str()} => [args]: {pf(args)}\n')
+
+    seeds = torch.zeros(dist.world_size).float()
+    seeds[dist.rank] = args.seed = args.seed_base + dist.rank
+    dist.allreduce(seeds)
+    dist.broadcast(seeds, 0)
+    assert torch.allclose(seeds, torch.arange(args.seed_base, args.seed_base + dist.world_size).float())
+    same_seed = args.torch_ddp
+    set_seed(args.seed_base if same_seed else args.seed)
+    lg.info(f'=> [seed]: using {"the same seed" if same_seed else "diff seeds"}')
+    
+    assert args.dataset == 'cifar10'
+    train_transform = transforms.Compose([
+        transforms.RandomResizedCrop(32),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
+        transforms.RandomGrayscale(p=0.2),
+        transforms.ToTensor(),
+        transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])])
+    
+    test_transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])])
+    
+    ds_root = args.ds_root or os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
+    
+    assert not args.torch_ddp
+    lg.info(f'=> [create]: create train_ds: {args.dataset} (ddp={args.torch_ddp})')
+    train_data = CIFAR10Pair(root=ds_root, train=True, transform=train_transform, download=False)
+    train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=True)
+
+    lg.info(f'=> [create]: create knn_ds: {args.dataset} (ddp={args.torch_ddp})')
+    knn_data = CIFAR10(root=ds_root, train=True, transform=test_transform, download=False)
+    knn_loader = DataLoader(knn_data, batch_size=args.batch_size * 2, shuffle=False, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=False)
+
+    lg.info(f'=> [create]: create test_ds: {args.dataset} (ddp={args.torch_ddp})')
+    test_data = CIFAR10(root=ds_root, train=False, transform=test_transform, download=False)
+    test_loader = DataLoader(test_data, batch_size=args.batch_size * 2, shuffle=False, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=False)
+
+    lg.info(f'=> [create]: create eval_ds: {args.dataset} (ddp={args.torch_ddp})')
+    eval_data = CIFAR10(root=ds_root, train=True, transform={['todo']}, download=False)
+    eval_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=True)
+    
+    lg.info(
+        f'=> [create]: create moco model: (ddp={args.torch_ddp})'
+        f'     arch={args.arch}, feature dim={args.moco_dim}'
+        f'     q size={args.moco_k}, ema mom={args.moco_m}, T={args.moco_t}'
+        f'     sync bn={args.bn}, mlp={args.mlp}, moco_symm={args.moco_symm}'
+    )
+    # create model
+    model = ModelMoCo(
+        lg=lg,
+        torch_ddp=args.torch_ddp,
+        arch=args.arch,
+        dim=args.moco_dim,
+        K=args.moco_k,  # queue size
+        m=args.moco_m,  # ema momentum
+        T=args.moco_t,  # temperature
+        sbn=args.sbn,
+        mlp=args.mlp,
+        symmetric=args.moco_symm,
+    ).cuda()
+    # print(model.encoder_q)
+    
+    # define optimizer
+    lg.info(f'\n=> [create]: create op: max_lr={args.lr}, wd={args.wd}, nowd={args.nowd}, coslr={args.coslr}, warm up={args.warmup}')
+    optimizer = torch.optim.SGD(filter_params(model) if args.nowd else model.parameters(), lr=args.lr, weight_decay=args.wd, momentum=0.9)
+    
+    # load model if resume
+    epoch_start = 0
+    if args.resume_ckpt is not None:
+        checkpoint = torch.load(args.resume_ckpt)
+        model.load_state_dict(checkpoint['state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        epoch_start = checkpoint['epoch'] + 1
+        print('Loaded from: {}'.format(args.resume_ckpt))
+    
+    # pretraining
+    start_pretrain_t = time.time()
+    best_knn_acc1 = 0
+    topk_acc1s = MaxHeap(maxsize=round(args.epochs * 0.05))
+    tr_iters_per_ep, te_iters_per_ep = len(train_loader), len(test_loader)
+    epoch_speed = AverageMeter(3)
+    tr_loss_avg = AverageMeter(tr_iters_per_ep)
+    for epoch in range(epoch_start, args.epochs):
+        ep_str = f'%{len(str(args.epochs))}d' % (epoch+1)
+        if epoch % 5 == 0 and dist.is_master():
+            print(colorama.Fore.CYAN + f'@@@@@ {args.exp_root}')
+            torch.cuda.empty_cache()
+
+        ep_start_t = time.time()
+        tr_loss = train(lg, l_tb_lg, dist, args, epoch, ep_str, tr_iters_per_ep, model, train_loader, optimizer, tr_loss_avg)
+        l_tb_lg.add_scalars('pretrain/tr_loss', {'ep': tr_loss}, (epoch+1) * tr_iters_per_ep)
+        
+        knn_acc1 = test(lg, l_tb_lg, dist, args, epoch, ep_str, te_iters_per_ep, model.encoder_q, knn_loader, test_loader)
+        topk_acc1s.push_q(knn_acc1)
+        best_knn_acc1 = max(best_knn_acc1, knn_acc1)
+        l_tb_lg.add_scalar('pretrain/knn_acc1', knn_acc1, epoch)
+        
+        # torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer': optimizer.state_dict(), }, args.results_dir + '/model_last.pth')
+
+        remain_time, finish_time = epoch_speed.time_preds(args.epochs - (epoch+1))
+        lg.info(
+            f'=> [ep {ep_str}/{args.epochs}]: L={tr_loss:.4f}, acc={knn_acc1:5.2f},        best={best_knn_acc1:5.2f}\n'
+            f'   [{str(remain_time)}] ({finish_time})'
+        )
+        if table_logging:
+            fill_explore_table(
+                abs_path=args.exp_root, rid=sea_table_rid,
+                knn_acc=knn_acc1, pr=(epoch+1) / args.epochs, rem=remain_time.seconds
+            )
+        
+        epoch_speed.update(time.time() - ep_start_t)
+        if epoch == epoch_start:
+            print(colorama.Fore.GREEN + f'[rk{dist.rank:2d}] barrier test')
+            dist.barrier()
+
+    topk_knn_acc1 = sum(topk_acc1s) / len(topk_acc1s)
+    dt = time.time() - start_pretrain_t
+    if not args.torch_ddp:
+        topk_accs = dist.dist_fmt_vals(topk_knn_acc1, None)
+        best_accs = dist.dist_fmt_vals(best_knn_acc1, None)
+        perform_dict = pf({
+            des: f'topk={ta.item():.3f}, best={ba.item():.3f}'
+            for des, ta, ba in zip(descriptions, topk_accs, best_accs)
+        })
+        lg.info(
+            f'==> pre-training finished,'
+            f' total time cost: {dt / 60:.2f}min ({dt / 60 / 60:.2f}h)'
+            f' topk: {pf([round(x, 2) for x in topk_acc1s])}\n'
+            f' performance: \n{perform_dict}\n'
+            f' mean-top accs @ (min={topk_accs.min():.3f}, mean={topk_accs.mean():.3f}, std={topk_accs.std():.3f}) {str(topk_accs).replace(chr(10), " ")})\n'
+            f' best     accs @ (min={best_accs.min():.3f}, mean={best_accs.mean():.3f}, std={best_accs.std():.3f}) {str(best_accs).replace(chr(10), " ")})\n\n\n'
+        )
+
+        if table_logging:
+            fill_explore_table(
+                abs_path=args.exp_root, rid=sea_table_rid,
+                knn_acc=best_accs.mean().item(), pr=1., rem=0
+            )
+        
+    else:
+        assert False
+    
+    # linear evaluation
+    epoch_speed = AverageMeter(3)
+    
+    if table_logging:
+        sp.kill()
+    g_tb_lg.close()
+    l_tb_lg.close()
+    dist.finalize()
+
+    with open(os.path.join(args.exp_root, '.seatable_rid.json')) as fp:
+        json.dump(sea_table_rid, fp)
+
+
+if __name__ == '__main__':
+    main()

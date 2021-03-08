@@ -104,6 +104,7 @@ def find_free_port():
     return s.getsockname()[1]  # Return the port number assigned.
 
 
+# srun -N2 -p gpu --gres gpu:2 python main_distributed.py --dist-backend nccl --multiprocessing-distributed --dist-file dist_file
 def main():
     args = parser.parse_args()
     
