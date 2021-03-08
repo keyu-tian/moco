@@ -75,7 +75,7 @@ def main():
     
     with open(seatable_file, 'r') as fp:
         last_dd = json.load(fp)
-        last_dd['tb'] = f'{socket.gethostbyname(socket.gethostname())}:{ava_port}'
+        last_dd[1]['tb'] = f'{socket.gethostbyname(socket.gethostname())}:{ava_port}'
     
     with open(seatable_file, 'w') as fp:
         json.dump(last_dd, fp)
