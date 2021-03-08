@@ -35,7 +35,7 @@ class MaxHeap(list):
     def __init__(self, maxsize):
         super(MaxHeap, self).__init__()
         self.maxsize = maxsize
-        assert self.maxsize > 1
+        assert self.maxsize >= 1
     
     def push_q(self, x):
         if len(self) < self.maxsize:
