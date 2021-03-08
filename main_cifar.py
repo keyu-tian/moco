@@ -452,8 +452,8 @@ def main_worker(args, dist: TorchDistManager):
     test_loader = DataLoader(test_data, batch_size=args.batch_size * 2, shuffle=False, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=False)
     
     lg.info(f'=> [create]: create eval_ds: {args.dataset} (ddp={args.torch_ddp})')
-    eval_data = CIFAR10(root=ds_root, train=True, transform={['todo']}, download=False)
-    eval_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=True)
+    # eval_data = CIFAR10(root=ds_root, train=True, transform={['todo']}, download=False)
+    # eval_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=True)
     
     lg.info(
         f'=> [create]: create moco model: (ddp={args.torch_ddp})'
