@@ -554,7 +554,7 @@ def main_worker(args, dist: TorchDistManager):
     
     g_tb_lg.close()
     l_tb_lg.close()
-    dist.finalize()
+    # dist.finalize()
 
 
 if __name__ == '__main__':
