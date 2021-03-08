@@ -93,7 +93,7 @@ def main():
             
             last_dd = dd
             abs_path, kwargs = dd
-            print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] updating...')
+            print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] updating... (rid={rid})')
             rid = create_or_upd_explore_table(base, abs_path, rid, **kwargs)
             print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] updated')
             if os.path.exists(terminate_file):
