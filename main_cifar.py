@@ -283,7 +283,7 @@ def train(lg, l_tb_lg, dist, args, epoch, ep_str, iters_per_ep, moco_model, trai
         if cur_iter % log_iters == 0:
             l_tb_lg.add_scalars('pretrain/tr_loss', {'it': tr_loss_avg.avg}, cur_iter)
             lg.info(
-                f'     ep[{ep_str}] it[{it + 1}/{iters_per_ep}]: L={cur_avg_loss:.4f} ({tr_loss_avg.avg:.4f})\n'
+                f'     ep[{ep_str}] it[{it + 1}/{iters_per_ep}]: L={cur_avg_loss:.2f} ({tr_loss_avg.avg:.2f})\n'
                 f'       da[{data_t - last_t:.3f}], cu[{cuda_t - data_t:.3f}], fo[{forw_t - cuda_t:.3f}], ba[{back_t - forw_t:.3f}]'
             )
         
@@ -512,7 +512,7 @@ def main_worker(args, dist: TorchDistManager):
         
         remain_time, finish_time = epoch_speed.time_preds(args.epochs - (epoch + 1))
         lg.info(
-            f'=> [ep {ep_str}/{args.epochs}]: L={tr_loss:.4f}, acc={knn_acc1:5.2f},        best={best_knn_acc1:5.2f}\n'
+            f'=> [ep {ep_str}/{args.epochs}]: L={tr_loss:.2f}, acc={knn_acc1:5.2f},        best={best_knn_acc1:5.2f}\n'
             f'   [{str(remain_time)}] ({finish_time})'
         )
         if dist.is_master():
