@@ -1,9 +1,7 @@
 import argparse
-import socket
+import json
 import math
 import os
-import json
-import subprocess
 import time
 from functools import partial
 from logging import Logger
@@ -11,7 +9,6 @@ from pprint import pformat as pf
 
 import colorama
 import torch
-import torch.multiprocessing as mp
 import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image

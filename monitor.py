@@ -66,6 +66,7 @@ def main():
         time.sleep(20)
         if os.path.exists(terminate_file):
             os.remove(terminate_file)
+            print(colorama.Fore.CYAN + '[monitor] terminated.')
             exit(-1)
     
     ava_port = get_ava_port()
@@ -97,6 +98,7 @@ def main():
             time.sleep(5)
             if os.path.exists(terminate_file):
                 os.remove(terminate_file)
+                print(colorama.Fore.CYAN + '[monitor] terminated.')
                 exit(-1)
     
     except Exception as e:
