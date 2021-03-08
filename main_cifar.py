@@ -22,7 +22,6 @@ from torchvision.datasets import CIFAR10
 
 from model import model_entry
 from model.bn import SplitBatchNorm
-from show import get_ava_port
 from utils.dist import TorchDistManager
 from utils.file import create_files
 from utils.misc import time_str, filter_params, set_seed, init_params, AverageMeter, MaxHeap
@@ -395,6 +394,7 @@ def main_worker(gpu_dev_idx, args, dist: TorchDistManager):
         fill_explore_table = None
     
     if table_logging:
+        from show import get_ava_port
         ava_port = get_ava_port()
         sea_table_rid = fill_explore_table(
             abs_path=args.exp_root, ds=args.dataset,
