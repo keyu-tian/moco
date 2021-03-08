@@ -93,9 +93,10 @@ def main():
             
             last_dd = dd
             abs_path, kwargs = dd
-            print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] updating... (rid={rid})')
+            des = 'creat' if rid is None else 'updat'
+            print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] {des}ing... (rid={rid})')
             rid = create_or_upd_explore_table(base, abs_path, rid, tb=tb_ip_port, **kwargs)
-            print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] updated')
+            print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] {des}ed')
             if os.path.exists(terminate_file):
                 os.remove(terminate_file)
                 print(colorama.Fore.CYAN + '[monitor] terminated.')
