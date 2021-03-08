@@ -4,6 +4,8 @@ EXP_DIR="exp-$(date "+%Y-%m%d-%H%M%S")-$1"
 
 python "${REL_PATH}monitor.py" "${EXP_DIR}" &
 
+jobs
+
 PYTHONPATH=${PYTHONPATH}:${REL_PATH} \
 srun \
 --job-name "${DIR_NAME}" \
