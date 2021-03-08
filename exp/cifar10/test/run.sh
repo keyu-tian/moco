@@ -1,6 +1,9 @@
 REL_PATH=../../../
 DIR_NAME="${PWD##*/}"
 EXP_DIR="exp-$(date "+%Y-%m%d-%H%M%S")-$1"
+
+python "${REL_PATH}monitor.py" "${EXP_DIR}" &
+
 PYTHONPATH=${PYTHONPATH}:${REL_PATH} \
 srun \
 --job-name "${DIR_NAME}" \
@@ -26,8 +29,10 @@ echo ""
 echo -e "\033[36mat ${PWD#}/${EXP_DIR}\033[0m"
 echo -e "\033[36m${RESULT#*@}\033[0m"
 
-cd "${EXP_DIR}" || exit
-python "${REL_PATH}../show.py"
+fg 1
+
+#cd "${EXP_DIR}" || exit
+#python "${REL_PATH}../show.py"
 
 
 #--warmup

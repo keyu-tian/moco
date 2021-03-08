@@ -377,16 +377,16 @@ def main():
     os.chdir(args.sh_root)
 
     dist = TorchDistManager('auto', 'auto')
-    mp.spawn(main_worker, nprocs=dist.ngpus_per_node, args=(args, dist))
+    
+    main_worker(args, dist)
     
 
-def main_worker(gpu_dev_idx, args, dist: TorchDistManager):
-    dist.initialize()
-    for i in range(dist.world_size):
-        if i == dist.rank:
-            print(f'[[[[ rk {dist.rank} ]]]]: dist.dev_idx={dist.dev_idx}, gpu_dev_idx={gpu_dev_idx}')
-        dist.barrier()
-    assert dist.dev_idx == gpu_dev_idx
+def main_worker(args, dist: TorchDistManager):
+    # for i in range(dist.world_size):
+    #     if i == dist.rank:
+    #         print(f'[[[[ rk {dist.rank} ]]]]: dist.dev_idx={dist.dev_idx}, gpu_dev_idx={gpu_dev_idx}')
+    #     dist.barrier()
+    # assert dist.dev_idx == gpu_dev_idx
     
     descriptions = [f'rk{rk:2d}' for rk in range(dist.world_size)]
     # todo: change desc when doing a grid search

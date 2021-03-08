@@ -16,7 +16,7 @@ class TorchDistManager:
     WORLD_GROUP = dist.group.WORLD if torch.cuda.is_available() else None
     
     def __init__(self, node0_addr: Union[int, str], node0_port: Union[int, str], mp_start_method: str = 'fork', backend: str = 'nccl'):
-        # set_start_method(mp_start_method, force=True)
+        set_start_method(mp_start_method, force=True)
         self.backend = backend
         # if multi_nodes:   # if $2 > ntasks-per-node
         #     os.environ[f'{backend.upper()}_SOCKET_IFNAME'] = 'eth0'
@@ -54,7 +54,7 @@ class TorchDistManager:
         self.node0_addr = self.node0_addr_port[self.node0_addr_port.find('//') + 2:self.node0_addr_port.rfind(':')]
         self.ngpus_per_node, self.dev_idx = torch.cuda.device_count(), ...
     
-    def initialize(self):
+    # def initialize(self):
         dist.init_process_group(
             backend=self.backend, init_method=self.node0_addr_port,
             world_size=self.world_size, rank=self.rank
