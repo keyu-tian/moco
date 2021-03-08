@@ -453,9 +453,9 @@ def main_worker(args, dist: TorchDistManager):
     # eval_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=True)
     
     lg.info(
-        f'=> [create]: create moco model: (ddp={args.torch_ddp})'
-        f'     arch={args.arch}, feature dim={args.moco_dim}'
-        f'     q size={args.moco_k}, ema mom={args.moco_m}, T={args.moco_t}'
+        f'=> [create]: create moco model: (ddp={args.torch_ddp})\n'
+        f'     arch={args.arch}, feature dim={args.moco_dim}\n'
+        f'     q size={args.moco_k}, ema mom={args.moco_m}, T={args.moco_t}\n'
         f'     sync bn={args.sbn}, mlp={args.mlp}, moco_symm={args.moco_symm}'
     )
     # create model
