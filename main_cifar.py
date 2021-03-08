@@ -489,7 +489,7 @@ def main_worker(args, dist: TorchDistManager):
     # pretraining
     start_pretrain_t = time.time()
     best_knn_acc1 = 0
-    topk_acc1s = MaxHeap(maxsize=round(args.epochs * 0.05))
+    topk_acc1s = MaxHeap(maxsize=max(1, round(args.epochs * 0.05)))
     tr_iters_per_ep, te_iters_per_ep = len(train_loader), len(test_loader)
     epoch_speed = AverageMeter(3)
     tr_loss_avg = AverageMeter(tr_iters_per_ep)
