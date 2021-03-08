@@ -234,7 +234,7 @@ def adjust_learning_rate(optimizer, cur_iter, max_iter, max_lr, args):
         base_lr = max_lr / 5
         lr = base_lr + ratio * (max_lr - base_lr)
     
-    elif args.cos:  # cosine lr schedule
+    elif args.coslr:  # cosine lr schedule
         if args.warmup:
             ratio = (cur_iter - warmup_iters) / (max_iter - 1 - warmup_iters)
         else:
