@@ -390,7 +390,7 @@ def main_worker(args, dist: TorchDistManager):
     #     dist.barrier()
     # assert dist.dev_idx == gpu_dev_idx
     
-    descriptions = [f'rk{rk:2d}' for rk in range(dist.world_size)]
+    descriptions = [f'rk{rk:02d}' for rk in range(dist.world_size)]
     # todo: change desc when doing a grid search
     
     args.loc_desc = descriptions[dist.rank]
