@@ -397,7 +397,7 @@ def main_worker(args, dist: TorchDistManager):
     lg: Logger = lg  # just for the code completion (actually is `DistLogger`)
     g_tb_lg: SummaryWriter = g_tb_lg  # just for the code completion (actually is `DistLogger`)
     l_tb_lg: SummaryWriter = l_tb_lg  # just for the code completion (actually is `DistLogger`)
-    lg.info(f'{time_str()} => [args]: {pf(args)}\n')
+    lg.info(f'{time_str()} => [args]: {pf(dict(args))}\n')
     
     seeds = torch.zeros(dist.world_size).float()
     seeds[dist.rank] = args.seed = args.seed_base + dist.rank
@@ -521,7 +521,7 @@ def main_worker(args, dist: TorchDistManager):
         
         epoch_speed.update(time.time() - ep_start_t)
         if epoch == epoch_start:
-            print(colorama.Fore.GREEN + f'[rk{dist.rank:2d}] barrier test')
+            print(f'[rk{dist.rank:2d}] barrier test')
             dist.barrier()
     
     topk_knn_acc1 = sum(topk_acc1s) / len(topk_acc1s)

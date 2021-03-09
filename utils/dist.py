@@ -40,15 +40,15 @@ class TorchDistManager:
             node0_addr_port = f'tcp://{node0_addr}:{node0_port}'
             with open(temp_f_path, 'w') as fp:
                 json.dump(node0_addr_port, fp)
-            print(Fore.LIGHTBLUE_EX + f'{time_str()}[rk00] node0_addr_port: {node0_addr_port} (saved at \'{temp_f_path}\')')
+            print(f'{time_str()}[rk00] node0_addr_port: {node0_addr_port} (saved at \'{temp_f_path}\')')
         else:
             time.sleep(3 + rank * 0.1)
             while not os.path.exists(temp_f_path):
-                print(Fore.CYAN + f'{time_str()}[rk{rank:02d}] try to read node0_addr_port')
+                print(f'{time_str()}[rk{rank:02d}] try to read node0_addr_port')
                 time.sleep(0.5)
             with open(temp_f_path, 'r') as fp:
                 node0_addr_port = json.load(fp)
-            print(Fore.LIGHTBLUE_EX + f'{time_str()}[rk{rank:02d}] node0_addr_port obtained')
+            print(f'{time_str()}[rk{rank:02d}] node0_addr_port obtained')
         
         self.backend, self.node0_addr_port, self.world_size, self.rank = backend, node0_addr_port, world_size, rank
         self.node0_addr = self.node0_addr_port[self.node0_addr_port.find('//') + 2:self.node0_addr_port.rfind(':')]
@@ -62,7 +62,7 @@ class TorchDistManager:
         self.dev_idx: int = int(os.environ['SLURM_LOCALID'])            # equals to rank % gres_gpu
         torch.cuda.set_device(self.dev_idx)
         
-        print(Fore.CYAN + f'{time_str()}[dist init] rank[{self.rank:02d}]: node0_addr_port={self.node0_addr_port}, gres_gpu(ngpus_per_node)={self.ngpus_per_node}, dev_idx={self.dev_idx}')
+        print(f'{time_str()}[dist init] rank[{self.rank:02d}]: node0_addr_port={self.node0_addr_port}, gres_gpu(ngpus_per_node)={self.ngpus_per_node}, dev_idx={self.dev_idx}')
         
         assert torch.distributed.is_initialized()
         
