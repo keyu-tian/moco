@@ -67,7 +67,7 @@ def main():
     
     while not os.path.exists(seatable_file):
         time.sleep(120)
-        print(colorama.Fore.GREEN + '[monitor] waiting for the seatable file...')
+        print(colorama.Fore.GREEN + f'[monitor] waiting for the seatable file at {seatable_file}...')
         if os.path.exists(terminate_file):
             os.remove(terminate_file)
             print(colorama.Fore.CYAN + '[monitor] terminated.')
