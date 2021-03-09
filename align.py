@@ -256,11 +256,11 @@ class ModelMoCo(nn.Module):
 
 
 # train for one epoch
-def train(net, data_loader, train_optimizer, epoch, args):
+def train(verbose, net, data_loader, train_optimizer, epoch, args):
     net.train()
     adjust_learning_rate(train_optimizer, epoch, args)
     
-    total_loss, total_num, train_bar = 0.0, 0, tqdm(data_loader)
+    total_loss, total_num, train_bar = 0.0, 0, (tqdm(data_loader) if verbose else data_loader)
     for im_1, im_2 in train_bar:
         im_1, im_2 = im_1.cuda(non_blocking=True), im_2.cuda(non_blocking=True)
         
@@ -272,7 +272,8 @@ def train(net, data_loader, train_optimizer, epoch, args):
         
         total_num += data_loader.batch_size
         total_loss += loss.item() * data_loader.batch_size
-        train_bar.set_description('Train Epoch: [{}/{}], lr: {:.6f}, Loss: {:.4f}'.format(epoch, args.epochs, train_optimizer.param_groups[0]['lr'], total_loss / total_num))
+        if verbose:
+            train_bar.set_description('Train Epoch: [{}/{}], lr: {:.6f}, Loss: {:.4f}'.format(epoch, args.epochs, train_optimizer.param_groups[0]['lr'], total_loss / total_num))
     
     return total_loss / total_num
 
@@ -291,13 +292,14 @@ def adjust_learning_rate(optimizer, epoch, args):
 
 
 # test using a knn monitor
-def test(net, memory_data_loader, test_data_loader, epoch, args):
+def test(verbose, net, memory_data_loader, test_data_loader, epoch, args):
     net.eval()
     classes = len(memory_data_loader.dataset.classes)
     total_top1, total_top5, total_num, feature_bank = 0.0, 0.0, 0, []
     with torch.no_grad():
         # generate feature bank
-        for data, target in tqdm(memory_data_loader, desc='Feature extracting'):
+        test_bar = tqdm(memory_data_loader, desc='Feature extracting') if verbose else memory_data_loader
+        for data, target in test_bar:
             feature = net(data.cuda(non_blocking=True))
             feature = F.normalize(feature, dim=1)
             feature_bank.append(feature)
@@ -306,7 +308,7 @@ def test(net, memory_data_loader, test_data_loader, epoch, args):
         # [N]
         feature_labels = torch.tensor(memory_data_loader.dataset.targets, device=feature_bank.device)
         # loop test data to predict the label by weighted knn search
-        test_bar = tqdm(test_data_loader)
+        test_bar = tqdm(test_data_loader) if verbose else test_data_loader
         for data, target in test_bar:
             data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
             feature = net(data)
@@ -316,7 +318,8 @@ def test(net, memory_data_loader, test_data_loader, epoch, args):
             
             total_num += data.size(0)
             total_top1 += (pred_labels[:, 0] == target).float().sum().item()
-            test_bar.set_description('Test Epoch: [{}/{}] Acc@1:{:.2f}%'.format(epoch, args.epochs, total_top1 / total_num * 100))
+            if verbose:
+                test_bar.set_description('Test Epoch: [{}/{}] Acc@1:{:.2f}%'.format(epoch, args.epochs, total_top1 / total_num * 100))
     
     return total_top1 / total_num * 100
 
@@ -442,9 +445,9 @@ def main_worker(dist):
     for epoch in range(epoch_start, args.epochs + 1):
         start_t = time.time()
         
-        train_loss = train(model, train_loader, optimizer, epoch, args)
+        train_loss = train(dist.is_master(), model, train_loader, optimizer, epoch, args)
         results['train_loss'].append(train_loss)
-        test_acc_1 = test(model.encoder_q, memory_loader, test_loader, epoch, args)
+        test_acc_1 = test(dist.is_master(), model.encoder_q, memory_loader, test_loader, epoch, args)
         results['test_acc@1'].append(test_acc_1)
 
         remain_time, finish_time = epoch_speed.time_preds(args.epochs - (epoch + 1))
