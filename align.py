@@ -263,7 +263,7 @@ class ModelMoCo(nn.Module):
 
 
 # train for one epoch
-def train(verbose, net, data_loader, train_optimizer, epoch, args):
+def train(verbose, net, data_loader, tr_iters_per_ep, train_optimizer, epoch, args):
     net.train()
     if not args.fgcos:
         adjust_learning_rate(train_optimizer, epoch, args.epochs, args)
@@ -275,7 +275,7 @@ def train(verbose, net, data_loader, train_optimizer, epoch, args):
         loss = net(im_1, im_2)
         
         if args.fgcos:
-            adjust_learning_rate(train_optimizer, it+1, len(data_loader), args)
+            adjust_learning_rate(train_optimizer, it+1 + tr_iters_per_ep*(epoch-1), tr_iters_per_ep*args.epochs, args)
         
         train_optimizer.zero_grad()
         loss.backward()
@@ -459,7 +459,7 @@ def main_worker(dist):
     for epoch in range(epoch_start, args.epochs + 1):
         start_t = time.time()
         
-        train_loss = train(dist.is_master(), model, train_loader, optimizer, epoch, args)
+        train_loss = train(dist.is_master(), model, train_loader, tr_iters_per_ep, optimizer, epoch, args)
         l_tb_lg.add_scalars('pretrain/tr_loss', {'ep': train_loss}, epoch * tr_iters_per_ep)
         results['train_loss'].append(train_loss)
         test_acc_1 = test(dist.is_master(), model.encoder_q, memory_loader, test_loader, epoch, args)
