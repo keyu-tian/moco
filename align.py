@@ -20,6 +20,7 @@ from tqdm import tqdm
 
 from meta import seatable_fname
 from utils.dist import TorchDistManager
+from utils.file import DistLogger
 from utils.misc import AverageMeter, init_params
 
 parser = argparse.ArgumentParser(description='Train MoCo on CIFAR-10')
@@ -381,6 +382,7 @@ def main_worker(dist):
     dist.barrier()
 
     l_tb_lg = SummaryWriter(os.path.join(args.exp_root, 'events', f'rk{dist.rank:02d}'))
+    g_tb_lg = DistLogger(SummaryWriter(os.path.join(args.exp_root, 'events', 'glb')) if dist.is_master() else None, verbose=dist.is_master())
     
     # set command line arguments here when running in ipynb
     args.epochs = 200
@@ -488,6 +490,7 @@ def main_worker(dist):
         
     best_acc = max(results['test_acc@1'])
     best_accs = dist.dist_fmt_vals(best_acc, None)
+    [g_tb_lg.add_scalar('pretrain/knn_best', best_accs.mean().item(), e) for e in [epoch_start, args.epochs]]
     if dist.is_master():
         print(f'best accs @ (max={best_accs.max():.3f}, mean={best_accs.mean():.3f}, std={best_accs.std():.3f}) {str(best_accs).replace(chr(10), " ")})')
 

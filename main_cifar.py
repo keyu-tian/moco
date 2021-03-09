@@ -536,6 +536,7 @@ def main_worker(args, dist: TorchDistManager):
     if not args.torch_ddp:
         topk_accs = dist.dist_fmt_vals(topk_knn_acc1, None)
         best_accs = dist.dist_fmt_vals(best_knn_acc1, None)
+        [g_tb_lg.add_scalar('pretrain/knn_best', best_accs.mean().item(), e) for e in [epoch_start, args.epochs]]
         perform_dict = pf({
             des: f'topk={ta.item():.3f}, best={ba.item():.3f}'
             for des, ta, ba in zip(descriptions, topk_accs, best_accs)
