@@ -38,7 +38,7 @@ echo -e "\033[36m${RESULT#*@}\033[0m"
 
 #fg
 if [ $failed -ne 0 ]; then
-    sh "${REL_PATH}kill.sh"
+    sh "./kill.sh"
 else
     touch "${EXP_DIR}".terminate
 fi

@@ -104,7 +104,7 @@ def main():
             if os.path.exists(terminate_file):
                 os.remove(terminate_file)
                 print(colorama.Fore.CYAN + '[monitor] terminated.')
-                exit(-1)
+                exit(-1)    # sp will become an orphan process; use `sh ./kill.sh` to kill it
     
     except Exception as e:
         sp.kill()
