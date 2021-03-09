@@ -10,7 +10,7 @@ function kills() {
 
 kills python
 kills tensorboard
-
+rm "./*.terminate"
 
 IFS="$_IFS"
 
