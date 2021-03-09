@@ -22,8 +22,7 @@ python -u -m main_cifar \
 --dataset=cifar10 \
 --num_workers=4 \
 --pin_mem \
---sbn \
---init \
+#--sbn \
 #--warmup
 #--nowd
 #--mlp
@@ -46,7 +45,7 @@ else
   touch "${EXP_DIR}".terminate
 fi
 
-# pretrain exp-2021-0309-120443-VI_SP_VA_1080TI:
-#  mean-top accs @ (min=83.624, mean=83.864, std=0.250) tensor([84.2160, 83.8170, 83.8000, 83.6240]))
-#  best     accs @ (min=83.690, mean=83.943, std=0.248) tensor([84.2800, 83.9400, 83.8600, 83.6900]))
+# pretrain exp-2021-0309-120416-VI_SP_VA_1080TI:
+#  mean-top accs @ (min=83.829, mean=84.087, std=0.242) tensor([84.4080, 84.0120, 84.1000, 83.8290]))
+#  best     accs @ (min=83.920, mean=84.162, std=0.236) tensor([84.4800, 84.0800, 84.1700, 83.9200]))
 

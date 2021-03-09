@@ -22,6 +22,7 @@ python -u -m main_cifar \
 --dataset=cifar10 \
 --num_workers=4 \
 --pin_mem \
+--init \
 #--sbn \
 #--warmup
 #--nowd

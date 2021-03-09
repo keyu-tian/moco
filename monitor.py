@@ -16,7 +16,7 @@ from meta import seatable_fname
 tag_choices = [
     'mlp', 'sbn', 'cos',
     'wp', 'nowd',
-    'sym',
+    'sym', 'init',
 ]
 
 

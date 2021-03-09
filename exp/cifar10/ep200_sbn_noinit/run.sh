@@ -23,7 +23,6 @@ python -u -m main_cifar \
 --num_workers=4 \
 --pin_mem \
 --sbn \
---init \
 #--warmup
 #--nowd
 #--mlp

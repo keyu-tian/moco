@@ -37,6 +37,7 @@ parser.add_argument('--log_freq', default=2, type=int)
 
 # moco
 parser.add_argument('--arch', default='resnet18')
+parser.add_argument('--init', action='store_true')
 parser.add_argument('--moco_dim', default=128, type=int, help='feature dimension')
 parser.add_argument('--moco_k', default=4096, type=int, help='queue size; number of negative keys')
 parser.add_argument('--moco_m', default=0.99, type=float, help='moco momentum of updating key encoder')
@@ -90,7 +91,7 @@ class CIFAR10Pair(CIFAR10):
 
 
 class ModelMoCo(nn.Module):
-    def __init__(self, lg, torch_ddp=False, arch='resnet18', dim=128, K=4096, m=0.99, T=0.1, sbn=False, mlp=False, symmetric=True):
+    def __init__(self, lg, torch_ddp=False, arch='resnet18', dim=128, K=4096, m=0.99, T=0.1, sbn=False, mlp=False, symmetric=True, init=False):
         super(ModelMoCo, self).__init__()
         
         self.K = K
@@ -111,7 +112,8 @@ class ModelMoCo(nn.Module):
             self.encoder_q.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.encoder_q.fc)
             self.encoder_k.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.encoder_k.fc)
         
-        init_params(self.encoder_q, output=lg.info)
+        if init:
+            init_params(self.encoder_q, output=lg.info)
         
         for param_q, param_k in zip(self.encoder_q.parameters(), self.encoder_k.parameters()):
             param_k.data.copy_(param_q.data)  # initialize
@@ -414,7 +416,7 @@ def main_worker(args, dist: TorchDistManager):
             ds=args.dataset, ep=args.epochs, bs=args.batch_size,
             # mom=args.moco_m,
             T=args.moco_t,
-            sbn=args.sbn, mlp=args.mlp, sym=args.moco_symm,
+            sbn=args.sbn, mlp=args.mlp, sym=args.moco_symm, init=args.init,
             cos=args.coslr, wp=args.warmup, nowd=args.nowd,
             pr=0, rem=0, beg_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         )
@@ -472,6 +474,7 @@ def main_worker(args, dist: TorchDistManager):
         sbn=args.sbn,
         mlp=args.mlp,
         symmetric=args.moco_symm,
+        init=args.init
     ).cuda()
     # print(model.encoder_q)
     

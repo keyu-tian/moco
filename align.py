@@ -392,7 +392,7 @@ def main_worker(dist):
             ds=args.dataset, ep=args.epochs, bs=args.batch_size,
             # mom=args.moco_m,
             T=args.moco_t,
-            sbn=args.bn_splits == 1, mlp=False, sym=args.symmetric,
+            sbn=args.bn_splits == 1, mlp=False, sym=args.symmetric, init=args.init,
             cos=args.cos, wp=False, nowd=False,
             pr=0, rem=0, beg_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         )
