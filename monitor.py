@@ -101,11 +101,9 @@ def main():
             last_dd = dd
             abs_path, kwargs = dd
             des = 'creat' if rid is None else 'updat'
-            prt = random.randrange(8) == 0 or cnt == 0
-            cnt += des == 'updat'
+            prt = random.randrange(8) == 0 or des == 'creat'
             if prt:
                 print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] {des}ing... (rid={rid})')
-            
             try:
                 rid = create_or_upd_explore_table(base, abs_path, rid, tb=tb_ip_port, **kwargs)
             except ConnectionError:
