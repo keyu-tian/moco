@@ -2,6 +2,7 @@ import argparse
 import json
 import math
 import os
+import time
 from datetime import datetime
 from functools import partial
 
@@ -16,7 +17,9 @@ from torchvision.datasets import CIFAR10
 from torchvision.models import resnet
 from tqdm import tqdm
 
+from meta import seatable_fname
 from utils.dist import TorchDistManager
+from utils.misc import AverageMeter
 
 parser = argparse.ArgumentParser(description='Train MoCo on CIFAR-10')
 
@@ -339,6 +342,14 @@ def knn_predict(feature, feature_bank, feature_labels, classes, knn_k, knn_t):
     return pred_labels
 
 
+seatable_kw = {}
+def upd_seatable_file(args, dist, kw):
+    seatable_kw.update(kw)
+    if dist.is_master():
+        with open(os.path.join(args.results_dir, seatable_fname), 'w') as fp:
+            json.dump([args.results_dir, seatable_kw], fp)
+
+
 def main():
     dist = TorchDistManager('auto', 'auto')
     main_worker(dist)
@@ -356,6 +367,16 @@ def main_worker(dist):
     args.cos = True
     args.schedule = []  # cos in use
     args.symmetric = True
+    upd_seatable_file(
+        args, dist, dict(
+            ds='cifar10', ep=args.epochs, bs=args.batch_size,
+            # mom=args.moco_m,
+            T=args.moco_t,
+            sbn=args.bn_splits == 1, mlp=False, sym=args.symmetric,
+            cos=args.cos, wp=False, nowd=False,
+            pr=0, rem=0, beg_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        )
+    )
     
     train_transform = transforms.Compose([
         transforms.RandomResizedCrop(32),
@@ -416,23 +437,40 @@ def main_worker(dist):
             json.dump(args.__dict__, fid, indent=2)
     
     # training loop
+    epoch_speed = AverageMeter(3)
     for epoch in range(epoch_start, args.epochs + 1):
         train_loss = train(model, train_loader, optimizer, epoch, args)
         results['train_loss'].append(train_loss)
         test_acc_1 = test(model.encoder_q, memory_loader, test_loader, epoch, args)
         results['test_acc@1'].append(test_acc_1)
+
+        remain_time, finish_time = epoch_speed.time_preds(args.epochs - (epoch + 1))
         # save statistics
         if dist.is_master():
             data_frame = pd.DataFrame(data=results, index=range(epoch_start, epoch + 1))
             data_frame.to_csv(args.results_dir + '/log.csv', index_label='epoch')
             # save model
             torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer': optimizer.state_dict(), }, args.results_dir + '/model_last.pth')
+
+            upd_seatable_file(
+                args, dist, dict(
+                    knn_acc=test_acc_1, pr=epoch / args.epochs, lr=f'{optimizer.param_groups[0]["lr"] / args.lr:.1e}',
+                    rem=remain_time.seconds, end_t=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + remain_time.seconds))
+                )
+            )
+        
     best_acc = max(results['test_acc@1'])
     best_accs = dist.dist_fmt_vals(best_acc, None)
-    
     if dist.is_master():
         print(f'best accs @ (max={best_accs.max():.3f}, mean={best_accs.mean():.3f}, std={best_accs.std():.3f}) {str(best_accs).replace(chr(10), " ")})')
-    
+
+    upd_seatable_file(
+        args, dist, dict(
+            knn_acc=best_accs.mean().item(), pr=1, rem=0,
+            end_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        )
+    )
+
 
 if __name__ == '__main__':
     main()

@@ -410,7 +410,7 @@ def main_worker(args, dist: TorchDistManager):
     lg.info(f'=> [seed]: using {"the same seed" if same_seed else "diff seeds"}')
 
     if dist.is_master():
-        seatable_kwargs = dict(
+        seatable_kw = dict(
             ds=args.dataset, ep=args.epochs, bs=args.batch_size,
             # mom=args.moco_m,
             T=args.moco_t,
@@ -418,9 +418,9 @@ def main_worker(args, dist: TorchDistManager):
             cos=args.coslr, wp=args.warmup, nowd=args.nowd,
             pr=0, rem=0, beg_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         )
-        save_seatable_file(args.exp_root, seatable_kwargs)
+        save_seatable_file(args.exp_root, seatable_kw)
     else:
-        seatable_kwargs = None
+        seatable_kw = None
     
     assert args.dataset == 'cifar10'
     train_transform = transforms.Compose([
@@ -520,11 +520,11 @@ def main_worker(args, dist: TorchDistManager):
             f'   [{str(remain_time)}] ({finish_time})'
         )
         if dist.is_master():
-            seatable_kwargs.update(dict(
-                knn_acc=knn_acc1, pr=(epoch + 1) / args.epochs, rem=remain_time.seconds,
-                end_t=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + remain_time.seconds))
+            seatable_kw.update(dict(
+                knn_acc=knn_acc1, pr=(epoch + 1) / args.epochs, lr=f'{optimizer.param_groups[0]["lr"] / args.lr:.1e}',
+                rem=remain_time.seconds, end_t=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + remain_time.seconds))
             ))
-            save_seatable_file(args.exp_root, seatable_kwargs)
+            save_seatable_file(args.exp_root, seatable_kw)
         
         epoch_speed.update(time.time() - start_t)
         if epoch == epoch_start:
@@ -552,11 +552,11 @@ def main_worker(args, dist: TorchDistManager):
         )
         
         if dist.is_master():
-            seatable_kwargs.update(dict(
+            seatable_kw.update(dict(
                 knn_acc=best_accs.mean().item(), pr=1., rem=0,
                 end_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             ))
-            save_seatable_file(args.exp_root, seatable_kwargs)
+            save_seatable_file(args.exp_root, seatable_kw)
             ra, rb = res_str.splitlines()
             with open(run_shell_name, 'a') as fp:
                 print(

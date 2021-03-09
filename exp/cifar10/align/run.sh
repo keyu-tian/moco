@@ -19,3 +19,20 @@ python -u -m main_cifar \
 #--mlp
 
 #--resume_ckpt=
+
+failed=$?
+echo "failed=${failed}"
+
+RESULT=$(tail "${EXP_DIR}"/log.txt -n 1)
+echo ""
+echo -e "\033[36mat ${PWD#}/${EXP_DIR}\033[0m"
+echo -e "\033[36m${RESULT#*@}\033[0m"
+
+#fg
+if [ $failed -ne 0 ]; then
+  sh "./kill.sh"
+  echo "killed."
+else
+  touch "${EXP_DIR}".terminate
+fi
+
