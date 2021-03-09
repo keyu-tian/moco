@@ -14,7 +14,7 @@ python -u -m align \
 --cos \
 --symmetric \
 --results-dir="${EXP_DIR}" \
-#--init \
+--init \
 #--fine_grained_cos \
 #--warmup
 #--nowd

@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 from meta import seatable_fname
 from utils.dist import TorchDistManager
-from utils.misc import AverageMeter
+from utils.misc import AverageMeter, init_params
 
 parser = argparse.ArgumentParser(description='Train MoCo on CIFAR-10')
 
@@ -43,6 +43,8 @@ parser.add_argument('--moco-t', default=0.1, type=float, help='softmax temperatu
 parser.add_argument('--bn-splits', default=8, type=int, help='simulate multi-gpu behavior of BatchNorm in one gpu; 1 is SyncBatchNorm in multi-gpu')
 
 parser.add_argument('--symmetric', action='store_true', help='use a symmetric loss function that backprops to both crops')
+parser.add_argument('--fgcos', action='store_true')
+parser.add_argument('--init', action='store_true')
 
 # knn monitor
 parser.add_argument('--knn-k', default=200, type=int, help='k in kNN monitor')
@@ -129,7 +131,7 @@ class ModelBase(nn.Module):
 
 
 class ModelMoCo(nn.Module):
-    def __init__(self, dim=128, K=4096, m=0.99, T=0.1, arch='resnet18', bn_splits=8, symmetric=True):
+    def __init__(self, dim=128, K=4096, m=0.99, T=0.1, arch='resnet18', bn_splits=8, symmetric=True, init=False):
         super(ModelMoCo, self).__init__()
         
         self.K = K
@@ -140,6 +142,9 @@ class ModelMoCo(nn.Module):
         # create the encoders
         self.encoder_q = ModelBase(feature_dim=dim, arch=arch, bn_splits=bn_splits)
         self.encoder_k = ModelBase(feature_dim=dim, arch=arch, bn_splits=bn_splits)
+        
+        if init:
+            init_params(self.encoder_q)
         
         for param_q, param_k in zip(self.encoder_q.parameters(), self.encoder_k.parameters()):
             param_k.data.copy_(param_q.data)  # initialize
@@ -258,13 +263,17 @@ class ModelMoCo(nn.Module):
 # train for one epoch
 def train(verbose, net, data_loader, train_optimizer, epoch, args):
     net.train()
-    adjust_learning_rate(train_optimizer, epoch, args)
+    if not args.fgcos:
+        adjust_learning_rate(train_optimizer, epoch, args.epochs, args)
     
     total_loss, total_num, train_bar = 0.0, 0, (tqdm(data_loader) if verbose else data_loader)
-    for im_1, im_2 in train_bar:
+    for it, (im_1, im_2) in enumerate(train_bar):
         im_1, im_2 = im_1.cuda(non_blocking=True), im_2.cuda(non_blocking=True)
         
         loss = net(im_1, im_2)
+        
+        if args.fgcos:
+            adjust_learning_rate(train_optimizer, it+1, len(data_loader), args)
         
         train_optimizer.zero_grad()
         loss.backward()
@@ -279,11 +288,11 @@ def train(verbose, net, data_loader, train_optimizer, epoch, args):
 
 
 # lr scheduler for training
-def adjust_learning_rate(optimizer, epoch, args):
+def adjust_learning_rate(optimizer, epoch, epochs, args):
     """Decay the learning rate based on schedule"""
     lr = args.lr
     if args.cos:  # cosine lr schedule
-        lr *= 0.5 * (1. + math.cos(math.pi * epoch / args.epochs))
+        lr *= 0.5 * (1. + math.cos(math.pi * epoch / epochs))
     else:  # stepwise lr schedule
         for milestone in args.schedule:
             lr *= 0.1 if epoch >= milestone else 1.
@@ -418,6 +427,7 @@ def main_worker(dist):
         arch=args.arch,
         bn_splits=args.bn_splits,
         symmetric=args.symmetric,
+        init=args.init,
     ).cuda()
     
     # define optimizer
