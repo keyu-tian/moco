@@ -362,6 +362,10 @@ def main_worker(dist):
     args = parser.parse_args()  # running in command line
     '''
     args = parser.parse_args()  # running in ipynb
+    if dist.is_master():
+        if not os.path.exists(args.results_dir):
+            os.mkdir(args.results_dir)
+    dist.barrier()
     
     # set command line arguments here when running in ipynb
     args.epochs = 200
@@ -427,10 +431,6 @@ def main_worker(dist):
     
     # logging
     results = {'train_loss': [], 'test_acc@1': []}
-    if dist.is_master():
-        if not os.path.exists(args.results_dir):
-            os.mkdir(args.results_dir)
-    dist.barrier()
     
     # dump args
     if dist.is_master():
