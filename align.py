@@ -49,6 +49,7 @@ parser.add_argument('--knn-k', default=200, type=int, help='k in kNN monitor')
 parser.add_argument('--knn-t', default=0.1, type=float, help='softmax temperature in kNN monitor; could be different with moco-t')
 
 # utils
+parser.add_argument('--dataset', default='cifar10', type=str, help='the name of dataset')
 parser.add_argument('--resume', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
 parser.add_argument('--results-dir', default='', type=str, metavar='PATH', help='path to cache (default: none)')
 
@@ -369,7 +370,7 @@ def main_worker(dist):
     args.symmetric = True
     upd_seatable_file(
         args, dist, dict(
-            ds='cifar10', ep=args.epochs, bs=args.batch_size,
+            ds=args.dataset, ep=args.epochs, bs=args.batch_size,
             # mom=args.moco_m,
             T=args.moco_t,
             sbn=args.bn_splits == 1, mlp=False, sym=args.symmetric,
