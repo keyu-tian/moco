@@ -439,6 +439,8 @@ def main_worker(dist):
     # training loop
     epoch_speed = AverageMeter(3)
     for epoch in range(epoch_start, args.epochs + 1):
+        start_t = time.time()
+        
         train_loss = train(model, train_loader, optimizer, epoch, args)
         results['train_loss'].append(train_loss)
         test_acc_1 = test(model.encoder_q, memory_loader, test_loader, epoch, args)
@@ -458,6 +460,11 @@ def main_worker(dist):
                     rem=remain_time.seconds, end_t=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + remain_time.seconds))
                 )
             )
+
+        epoch_speed.update(time.time() - start_t)
+        if epoch == epoch_start:
+            print(f'[rk{dist.rank:2d}] barrier test')
+            dist.barrier()
         
     best_acc = max(results['test_acc@1'])
     best_accs = dist.dist_fmt_vals(best_acc, None)
