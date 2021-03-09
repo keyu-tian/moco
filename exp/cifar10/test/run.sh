@@ -16,25 +16,31 @@ python -u -m main_cifar \
 --seed_base=0 \
 --moco_m=0.99 \
 --moco_t=0.1 \
---sbn \
 --moco_symm \
 --epochs=2 \
 --coslr \
 --dataset=cifar10 \
 --num_workers=4 \
 --pin_mem \
+--sbn \
+#--warmup
+#--nowd
+#--mlp
+
+#--resume_ckpt=
+
+failed=$?
+echo "failed=${failed}"
 
 RESULT=$(tail "${EXP_DIR}"/log.txt -n 1)
 echo ""
 echo -e "\033[36mat ${PWD#}/${EXP_DIR}\033[0m"
 echo -e "\033[36m${RESULT#*@}\033[0m"
 
-fg
+#fg
+if [ $failed -ne 0 ]; then
+    sh "${REL_PATH}kill.sh"
+else
+    touch "${EXP_DIR}".terminate
+fi
 
-touch "${EXP_DIR}".terminate
-
-#--warmup
-#--nowd
-#--mlp
-
-#--resume_ckpt=
