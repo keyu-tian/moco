@@ -91,8 +91,19 @@ def main():
                 exit(-1)    # sp will become an orphan process; use `sh ./kill.sh` to kill it
                 
             time.sleep(15)
-            with open(seatable_file, 'r') as fp:
-                dd = json.load(fp)
+            attempts, max_att = 0, 5
+            while attempts < max_att:
+                try:
+                    with open(seatable_file, 'r') as fp:
+                        dd = json.load(fp)
+                except json.decoder.JSONDecodeError:
+                    attempts += 1
+                else:
+                    break
+            
+            if attempts == max_att:
+                raise json.decoder.JSONDecodeError
+            
             if dd == last_dd:
                 # print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] same...')
                 continue
