@@ -30,6 +30,7 @@ python -u -m main_cifar \
 #--resume_ckpt=
 
 failed=$?
+echo "failed=${failed}"
 
 RESULT=$(tail "${EXP_DIR}"/log.txt -n 1)
 echo ""
