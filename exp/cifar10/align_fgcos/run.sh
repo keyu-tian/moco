@@ -13,7 +13,7 @@ srun \
 python -u -m align \
 --cos \
 --symmetric \
---results-dir="${EXP_DIR}" \
+--exp_root="${EXP_DIR}" \
 --fine_grained_cos \
 #--init \
 #--warmup

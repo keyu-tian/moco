@@ -55,7 +55,7 @@ parser.add_argument('--knn-t', default=0.1, type=float, help='softmax temperatur
 # utils
 parser.add_argument('--dataset', default='cifar10', type=str, help='the name of dataset')
 parser.add_argument('--resume', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
-parser.add_argument('--results-dir', default='', type=str, metavar='PATH', help='path to cache (default: none)')
+parser.add_argument('--exp_root', default='', type=str, metavar='PATH', help='path to cache (default: none)')
 
 
 class CIFAR10Pair(CIFAR10):
@@ -361,8 +361,8 @@ seatable_kw = {}
 def upd_seatable_file(args, dist, kw):
     seatable_kw.update(kw)
     if dist.is_master():
-        with open(os.path.join(args.results_dir, seatable_fname), 'w') as fp:
-            json.dump([args.results_dir, seatable_kw], fp)
+        with open(os.path.join(args.exp_root, seatable_fname), 'w') as fp:
+            json.dump([args.exp_root, seatable_kw], fp)
 
 
 def main():
@@ -371,14 +371,12 @@ def main():
 
 
 def main_worker(dist):
+    args = parser.parse_args()
+    args.exp_root = os.path.join(os.getcwd(), args.exp_root)
     
-    '''
-    args = parser.parse_args()  # running in command line
-    '''
-    args = parser.parse_args()  # running in ipynb
     if dist.is_master():
-        if not os.path.exists(args.results_dir):
-            os.mkdir(args.results_dir)
+        if not os.path.exists(args.exp_root):
+            os.mkdir(args.exp_root)
     dist.barrier()
 
     l_tb_lg = SummaryWriter(os.path.join(args.exp_root, 'events', f'rk{dist.rank:02d}'))
@@ -452,7 +450,7 @@ def main_worker(dist):
     
     # dump args
     if dist.is_master():
-        with open(args.results_dir + '/args.json', 'w') as fid:
+        with open(args.exp_root + '/args.json', 'w') as fid:
             json.dump(args.__dict__, fid, indent=2)
     
     # training loop
@@ -472,9 +470,9 @@ def main_worker(dist):
         # save statistics
         if dist.is_master():
             data_frame = pd.DataFrame(data=results, index=range(epoch_start, epoch + 1))
-            data_frame.to_csv(args.results_dir + '/log.csv', index_label='epoch')
+            data_frame.to_csv(args.exp_root + '/log.csv', index_label='epoch')
             # save model
-            torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer': optimizer.state_dict(), }, args.results_dir + '/model_last.pth')
+            torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer': optimizer.state_dict(), }, args.exp_root + '/model_last.pth')
 
             upd_seatable_file(
                 args, dist, dict(
