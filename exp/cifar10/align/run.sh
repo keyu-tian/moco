@@ -10,7 +10,7 @@ srun \
 --mpi=pmi2 -p $1 -n4 --gres=gpu:4 \
 --ntasks-per-node=4 \
 --cpus-per-task=5 \
-python -u -m main_cifar \
+python -u -m align \
 --cos \
 --symmetric \
 --results-dir="${EXP_DIR}" \
