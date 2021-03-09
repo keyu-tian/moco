@@ -389,6 +389,7 @@ def main_worker(dist):
     args.symmetric = True
     upd_seatable_file(
         args, dist, dict(
+            gpu=1,
             ds=args.dataset, ep=args.epochs, bs=args.batch_size,
             # mom=args.moco_m,
             T=args.moco_t,

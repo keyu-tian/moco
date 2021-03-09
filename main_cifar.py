@@ -418,6 +418,7 @@ def main_worker(args, dist: TorchDistManager):
 
     if dist.is_master():
         seatable_kw = dict(
+            gpu=dist.world_size if args.torch_ddp else 1,
             ds=args.dataset, ep=args.epochs, bs=args.batch_size,
             # mom=args.moco_m,
             T=args.moco_t,
