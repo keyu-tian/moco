@@ -499,27 +499,29 @@ def main_worker(args, dist: TorchDistManager):
             print(colorama.Fore.CYAN + f'@@@@@ {args.exp_root}')
             torch.cuda.empty_cache()
         
-        ep_start_t = time.time()
+        start_t = time.time()
         tr_loss = train(lg, l_tb_lg, dist, args, epoch, ep_str, tr_iters_per_ep, model, train_loader, optimizer, tr_loss_avg)
+        train_t = time.time()
         l_tb_lg.add_scalars('pretrain/tr_loss', {'ep': tr_loss}, (epoch + 1) * tr_iters_per_ep)
         
         knn_acc1 = test(lg, l_tb_lg, dist, args, epoch, ep_str, te_iters_per_ep, model.encoder_q, knn_loader, test_loader)
         topk_acc1s.push_q(knn_acc1)
         best_knn_acc1 = max(best_knn_acc1, knn_acc1)
+        test_t = time.time()
         l_tb_lg.add_scalar('pretrain/knn_acc1', knn_acc1, epoch)
         
         # torch.save({'epoch': epoch, 'state_dict': model.state_dict(), 'optimizer': optimizer.state_dict(), }, args.results_dir + '/model_last.pth')
         
         remain_time, finish_time = epoch_speed.time_preds(args.epochs - (epoch + 1))
         lg.info(
-            f'=> [ep {ep_str}/{args.epochs}]: L={tr_loss:.2f}, acc={knn_acc1:5.2f},        best={best_knn_acc1:5.2f}\n'
+            f'=> [ep {ep_str}/{args.epochs}]: L={tr_loss:.2f}, acc={knn_acc1:5.2f}, tr={train_t - start_t:.2f}s, te={test_t - train_t:.2f}s       best={best_knn_acc1:5.2f}\n'
             f'   [{str(remain_time)}] ({finish_time})'
         )
         if dist.is_master():
             seatable_kwargs.update(dict(knn_acc=knn_acc1, pr=(epoch + 1) / args.epochs, rem=remain_time.seconds))
             save_seatable_file(args.exp_root, seatable_kwargs)
         
-        epoch_speed.update(time.time() - ep_start_t)
+        epoch_speed.update(time.time() - start_t)
         if epoch == epoch_start:
             print(f'[rk{dist.rank:2d}] barrier test')
             dist.barrier()
