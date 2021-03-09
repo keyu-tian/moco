@@ -84,7 +84,6 @@ def main():
     
     try:
         rid = None
-        cnt = 0
         while True:
             if os.path.exists(terminate_file):
                 os.remove(terminate_file)
