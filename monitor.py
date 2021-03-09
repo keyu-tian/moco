@@ -30,7 +30,9 @@ def record_dt(dd):
     dd['last_upd'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
 
 
-def create_or_upd_explore_table(base, abs_path=None, rid=None, **kwargs):
+def create_or_upd_explore_table(base, abs_path, rid=None, **kwargs):
+    assert abs_path is not None
+    
     t_name = 'explore'
     tags = []
     new_kw = deepcopy(kwargs)
@@ -41,13 +43,17 @@ def create_or_upd_explore_table(base, abs_path=None, rid=None, **kwargs):
     
     kwargs = new_kw
     dd = dict(tags=tags, **kwargs)
-    if abs_path is not None:
-        dd['abs_path'] = abs_path
-        dd['exp'] = '/'.join(abs_path.split('/')[-2:])
     record_dt(dd)
-    
+    dd['abs_path'] = abs_path
+    dd['exp'] = '/'.join(abs_path.split('/')[-2:])
+
     if rid is None:
-        return base.append_row(t_name, dd)['_id']
+        q = base.filter(t_name, f"exp='{dd['exp']}'")
+        if q.exists():
+            q.update(dd)
+            return q.get()['_id']
+        else:
+            return base.append_row(t_name, dd)['_id']
     else:
         base.update_row(t_name, rid, dd)
         return rid
