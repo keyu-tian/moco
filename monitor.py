@@ -71,6 +71,7 @@ def main():
     base.auth()
     
     exp_dir_name = sys.argv[1]
+    less_print = bool(eval(sys.argv[2])) if len(sys.argv) >= 3 else False
     exp_root = os.path.join(os.getcwd(), exp_dir_name)
     seatable_file = os.path.join(exp_root, seatable_fname)
     terminate_file = f'{exp_root}.terminate'
@@ -121,7 +122,10 @@ def main():
             last_dd = dd
             abs_path, kwargs = dd
             rid, created = create_or_upd_explore_table(base, abs_path, rid, tb=tb_ip_port, **kwargs)
-            if random.randrange(8) == 0 or created:
+            
+            logging = not less_print and random.randrange(8) == 0
+            logging |= created
+            if logging:
                 print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] {"created" if created else "updated"}')
     
     except Exception as e:

@@ -2,7 +2,7 @@ REL_PATH=../../../
 DIR_NAME="${PWD##*/}"
 EXP_DIR="exp-$(date "+%Y-%m%d-%H%M%S")-$1"
 
-python "${REL_PATH}monitor.py" "${EXP_DIR}" &
+python "${REL_PATH}monitor.py" "${EXP_DIR}" 1 &
 
 PYTHONPATH=${PYTHONPATH}:${REL_PATH} \
 srun \
