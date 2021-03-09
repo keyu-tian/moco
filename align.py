@@ -361,7 +361,7 @@ def main_worker(dist):
     '''
     args = parser.parse_args()  # running in command line
     '''
-    args = parser.parse_args('')  # running in ipynb
+    args = parser.parse_args()  # running in ipynb
     
     # set command line arguments here when running in ipynb
     args.epochs = 200
