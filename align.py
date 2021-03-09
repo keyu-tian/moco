@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
+from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import CIFAR10
@@ -378,6 +379,8 @@ def main_worker(dist):
         if not os.path.exists(args.results_dir):
             os.mkdir(args.results_dir)
     dist.barrier()
+
+    l_tb_lg = SummaryWriter(os.path.join(args.exp_root, 'events', f'rk{dist.rank:02d}'))
     
     # set command line arguments here when running in ipynb
     args.epochs = 200
@@ -452,12 +455,15 @@ def main_worker(dist):
     
     # training loop
     epoch_speed = AverageMeter(3)
+    tr_iters_per_ep = len(train_loader)
     for epoch in range(epoch_start, args.epochs + 1):
         start_t = time.time()
         
         train_loss = train(dist.is_master(), model, train_loader, optimizer, epoch, args)
+        l_tb_lg.add_scalars('pretrain/tr_loss', {'ep': train_loss}, epoch * tr_iters_per_ep)
         results['train_loss'].append(train_loss)
         test_acc_1 = test(dist.is_master(), model.encoder_q, memory_loader, test_loader, epoch, args)
+        l_tb_lg.add_scalar('pretrain/knn_acc1', test_acc_1, epoch)
         results['test_acc@1'].append(test_acc_1)
 
         remain_time, finish_time = epoch_speed.time_preds(args.epochs - (epoch + 1))
