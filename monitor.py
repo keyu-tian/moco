@@ -108,7 +108,7 @@ def main():
                 rid = create_or_upd_explore_table(base, abs_path, rid, tb=tb_ip_port, **kwargs)
             except ConnectionError:
                 rid = create_or_upd_explore_table(base, abs_path, None, tb=tb_ip_port, **kwargs)
-            
+                des = 're-creat'
             if prt:
                 print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] {des}ed')
     
