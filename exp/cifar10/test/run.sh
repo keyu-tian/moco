@@ -45,3 +45,23 @@ else
   touch "${EXP_DIR}".terminate
 fi
 
+# pretrain exp-2021-0309-110608-VI_SP_VA_1080TI:
+#  mean-top accs @ (min=15.810, mean=18.892, std=2.798) tensor([20.7200, 15.8100, 17.3000, 21.7400]))
+#  best     accs @ (min=15.810, mean=18.892, std=2.798) tensor([20.7200, 15.8100, 17.3000, 21.7400]))
+
+# pretrain exp-2021-0309-111354-VI_SP_VA_1080TI:
+#  mean-top accs @ (min=15.810, mean=18.892, std=2.798) tensor([20.7200, 15.8100, 17.3000, 21.7400]))
+#  best     accs @ (min=15.810, mean=18.892, std=2.798) tensor([20.7200, 15.8100, 17.3000, 21.7400]))
+
+# pretrain exp-2021-0309-113737-VI_SP_VA_1080TI:
+#  mean-top accs @ (min=15.810, mean=18.892, std=2.798) tensor([20.7200, 15.8100, 17.3000, 21.7400]))
+#  best     accs @ (min=15.810, mean=18.892, std=2.798) tensor([20.7200, 15.8100, 17.3000, 21.7400]))
+
+# pretrain exp-2021-0309-114707-VI_SP_VA_1080TI:
+#  mean-top accs @ (min=15.810, mean=18.892, std=2.798) tensor([20.7200, 15.8100, 17.3000, 21.7400]))
+#  best     accs @ (min=15.810, mean=18.892, std=2.798) tensor([20.7200, 15.8100, 17.3000, 21.7400]))
+
+# pretrain exp-2021-0309-120327-VI_SP_VA_1080TI:
+#  mean-top accs @ (min=15.810, mean=18.892, std=2.798) tensor([20.7200, 15.8100, 17.3000, 21.7400]))
+#  best     accs @ (min=15.810, mean=18.892, std=2.798) tensor([20.7200, 15.8100, 17.3000, 21.7400]))
+

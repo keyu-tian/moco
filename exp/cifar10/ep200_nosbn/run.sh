@@ -45,3 +45,7 @@ else
   touch "${EXP_DIR}".terminate
 fi
 
+# pretrain exp-2021-0309-120416-VI_SP_VA_1080TI:
+#  mean-top accs @ (min=83.829, mean=84.087, std=0.242) tensor([84.4080, 84.0120, 84.1000, 83.8290]))
+#  best     accs @ (min=83.920, mean=84.162, std=0.236) tensor([84.4800, 84.0800, 84.1700, 83.9200]))
+
