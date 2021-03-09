@@ -55,8 +55,12 @@ def create_or_upd_explore_table(base, abs_path, rid=None, **kwargs):
         else:
             return base.append_row(t_name, dd)['_id'], True
     else:
-        base.update_row(t_name, rid, dd)
-        return rid, False
+        try:
+            base.update_row(t_name, rid, dd)
+            ret = rid, False
+        except ConnectionError:
+            ret = base.append_row(t_name, dd)['_id'], True
+        return ret
 
 
 def main():
