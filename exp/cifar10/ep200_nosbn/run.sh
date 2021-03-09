@@ -39,8 +39,9 @@ echo -e "\033[36m${RESULT#*@}\033[0m"
 
 #fg
 if [ $failed -ne 0 ]; then
-    sh "./kill.sh"
+  sh "./kill.sh" >/dev/null 2>&1
+  echo "killed."
 else
-    touch "${EXP_DIR}".terminate
+  touch "${EXP_DIR}".terminate
 fi
 
