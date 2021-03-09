@@ -67,7 +67,7 @@ def main():
     
     while not os.path.exists(seatable_file):
         time.sleep(120)
-        print(colorama.Fore.GREEN + f'[monitor] waiting for the seatable file at {seatable_file}...')
+        print(colorama.Fore.GREEN + f'[monitor] waiting for the seatable file at {seatable_file} ...')
         if os.path.exists(terminate_file):
             os.remove(terminate_file)
             print(colorama.Fore.CYAN + '[monitor] terminated.')
@@ -85,6 +85,11 @@ def main():
     try:
         rid = None
         while True:
+            if os.path.exists(terminate_file):
+                os.remove(terminate_file)
+                print(colorama.Fore.CYAN + '[monitor] terminated; use `sh ./kill.sh` to kill tensorboard')
+                exit(-1)    # sp will become an orphan process; use `sh ./kill.sh` to kill it
+                
             time.sleep(15)
             with open(seatable_file, 'r') as fp:
                 dd = json.load(fp)
@@ -95,7 +100,7 @@ def main():
             last_dd = dd
             abs_path, kwargs = dd
             des = 'creat' if rid is None else 'updat'
-            prt = random.randrange(5) == 0
+            prt = random.randrange(4) == 0
             if prt:
                 print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] {des}ing... (rid={rid})')
             
@@ -106,10 +111,6 @@ def main():
             
             if prt:
                 print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] {des}ed')
-            if os.path.exists(terminate_file):
-                os.remove(terminate_file)
-                print(colorama.Fore.CYAN + '[monitor] terminated.')
-                exit(-1)    # sp will become an orphan process; use `sh ./kill.sh` to kill it
     
     except Exception as e:
         sp.kill()
