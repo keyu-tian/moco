@@ -87,7 +87,7 @@ def main():
         while True:
             if os.path.exists(terminate_file):
                 os.remove(terminate_file)
-                print(colorama.Fore.CYAN + '[monitor] terminated; use `sh ./kill.sh` to kill tensorboard')
+                print(colorama.Fore.CYAN + '[monitor] terminated; use `sh ./kill.sh` to kill the tensorboard proc')
                 exit(-1)    # sp will become an orphan process; use `sh ./kill.sh` to kill it
                 
             time.sleep(15)
