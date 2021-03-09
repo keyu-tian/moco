@@ -32,7 +32,7 @@ parser.add_argument('--torch_ddp', action='store_true', help='using DistributedD
 parser.add_argument('--main_py_rel_path', type=str, required=True)
 parser.add_argument('--exp_dirname', type=str, required=True)
 parser.add_argument('--resume_ckpt', default=None, type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
-parser.add_argument('--seed_base', default=0, type=int)
+parser.add_argument('--seed_base', default=None, type=int)
 parser.add_argument('--log_freq', default=2, type=int)
 
 # moco
@@ -402,14 +402,19 @@ def main_worker(args, dist: TorchDistManager):
     l_tb_lg: SummaryWriter = l_tb_lg  # just for the code completion (actually is `DistLogger`)
     lg.info(f'{time_str()} => [args]:\n{pf(vars(args))}\n')
     
-    seeds = torch.zeros(dist.world_size).float()
-    seeds[dist.rank] = args.seed = args.seed_base + dist.rank
-    dist.allreduce(seeds)
-    dist.broadcast(seeds, 0)
-    assert torch.allclose(seeds, torch.arange(args.seed_base, args.seed_base + dist.world_size).float())
-    same_seed = args.torch_ddp
-    set_seed(args.seed_base if same_seed else args.seed)
-    lg.info(f'=> [seed]: using {"the same seed" if same_seed else "diff seeds"}')
+    if args.seed_base is None:
+        lg.info(f'=> [seed]: args.seed_base is None, no set_seed called')
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.deterministic = False
+    else:
+        seeds = torch.zeros(dist.world_size).float()
+        seeds[dist.rank] = args.seed = args.seed_base + dist.rank
+        dist.allreduce(seeds)
+        dist.broadcast(seeds, 0)
+        assert torch.allclose(seeds, torch.arange(args.seed_base, args.seed_base + dist.world_size).float())
+        same_seed = args.torch_ddp
+        set_seed(args.seed_base if same_seed else args.seed)
+        lg.info(f'=> [seed]: using {"the same seed" if same_seed else "diff seeds"}')
 
     if dist.is_master():
         seatable_kw = dict(
