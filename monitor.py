@@ -84,7 +84,9 @@ def main():
     
     try:
         rid = None
+        cnt = 0
         while True:
+            cnt += 1
             if os.path.exists(terminate_file):
                 os.remove(terminate_file)
                 print(colorama.Fore.CYAN + '[monitor] terminated; use `sh ./kill.sh` to kill tensorboard')
@@ -100,7 +102,7 @@ def main():
             last_dd = dd
             abs_path, kwargs = dd
             des = 'creat' if rid is None else 'updat'
-            prt = random.randrange(4) == 0
+            prt = random.randrange(8) == 0 or cnt == 0
             if prt:
                 print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] {des}ing... (rid={rid})')
             
