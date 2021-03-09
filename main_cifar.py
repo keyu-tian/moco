@@ -3,6 +3,7 @@ import json
 import math
 import os
 import time
+from datetime import datetime
 from functools import partial
 from logging import Logger
 from pprint import pformat as pf
@@ -414,7 +415,7 @@ def main_worker(args, dist: TorchDistManager):
             mom=args.moco_m, T=args.moco_t,
             sbn=args.sbn, mlp=args.mlp, sym=args.moco_symm,
             cos=args.coslr, wp=args.warmup, nowd=args.nowd,
-            pr=0, rem=0,
+            pr=0, rem=0, beg_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         )
         save_seatable_file(args.exp_root, seatable_kwargs)
     else:
@@ -518,7 +519,10 @@ def main_worker(args, dist: TorchDistManager):
             f'   [{str(remain_time)}] ({finish_time})'
         )
         if dist.is_master():
-            seatable_kwargs.update(dict(knn_acc=knn_acc1, pr=(epoch + 1) / args.epochs, rem=remain_time.seconds))
+            seatable_kwargs.update(dict(
+                knn_acc=knn_acc1, pr=(epoch + 1) / args.epochs, rem=remain_time.seconds,
+                end_t=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + remain_time.seconds))
+            ))
             save_seatable_file(args.exp_root, seatable_kwargs)
         
         epoch_speed.update(time.time() - start_t)
@@ -547,7 +551,10 @@ def main_worker(args, dist: TorchDistManager):
         )
         
         if dist.is_master():
-            seatable_kwargs.update(dict(knn_acc=best_accs.mean().item(), pr=1., rem=0))
+            seatable_kwargs.update(dict(
+                knn_acc=best_accs.mean().item(), pr=1., rem=0,
+                end_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            ))
             save_seatable_file(args.exp_root, seatable_kwargs)
             ra, rb = res_str.splitlines()
             with open(run_shell_name, 'a') as fp:
