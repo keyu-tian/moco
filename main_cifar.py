@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import CIFAR10
 
-from meta import seatable_fname
+from meta import seatable_fname, run_shell_name
 from model import model_entry
 from model.bn import SplitBatchNorm
 from utils.dist import TorchDistManager
@@ -533,23 +533,34 @@ def main_worker(args, dist: TorchDistManager):
             des: f'topk={ta.item():.3f}, best={ba.item():.3f}'
             for des, ta, ba in zip(descriptions, topk_accs, best_accs)
         })
+        res_str = (
+            f' mean-top accs @ (min={topk_accs.min():.3f}, mean={topk_accs.mean():.3f}, std={topk_accs.std():.3f}) {str(topk_accs).replace(chr(10), " ")})\n'
+            f' best     accs @ (min={best_accs.min():.3f}, mean={best_accs.mean():.3f}, std={best_accs.std():.3f}) {str(best_accs).replace(chr(10), " ")})'
+        )
         lg.info(
             f'==> pre-training finished,'
             f' total time cost: {dt / 60:.2f}min ({dt / 60 / 60:.2f}h)'
             f' topk: {pf([round(x, 2) for x in topk_acc1s])}\n'
-            f' performance: \n{perform_dict}\n'
-            f' mean-top accs @ (min={topk_accs.min():.3f}, mean={topk_accs.mean():.3f}, std={topk_accs.std():.3f}) {str(topk_accs).replace(chr(10), " ")})\n'
-            f' best     accs @ (min={best_accs.min():.3f}, mean={best_accs.mean():.3f}, std={best_accs.std():.3f}) {str(best_accs).replace(chr(10), " ")})\n\n\n'
+            f' performance: \n{perform_dict}\n{res_str}'
         )
         
         if dist.is_master():
             seatable_kwargs.update(dict(knn_acc=best_accs.mean().item(), pr=1., rem=0))
             save_seatable_file(args.exp_root, seatable_kwargs)
+            ra, rb = res_str.splitlines()
+            with open(run_shell_name, 'a') as fp:
+                print(
+                    f'# pretrain {args.exp_dirname}:\n'
+                    f'# {ra}\n'
+                    f'# {rb}\n'
+                    , file=fp
+                )
     
     else:
         assert False
     
     # linear evaluation
+    lg.info('\n\n\n')
     epoch_speed = AverageMeter(3)
     
     g_tb_lg.close()
