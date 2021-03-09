@@ -412,7 +412,8 @@ def main_worker(args, dist: TorchDistManager):
     if dist.is_master():
         seatable_kwargs = dict(
             ds=args.dataset, ep=args.epochs, bs=args.batch_size,
-            mom=args.moco_m, T=args.moco_t,
+            # mom=args.moco_m,
+            T=args.moco_t,
             sbn=args.sbn, mlp=args.mlp, sym=args.moco_symm,
             cos=args.coslr, wp=args.warmup, nowd=args.nowd,
             pr=0, rem=0, beg_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),

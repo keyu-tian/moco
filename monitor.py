@@ -98,7 +98,12 @@ def main():
             prt = random.randrange(5) == 0
             if prt:
                 print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] {des}ing... (rid={rid})')
-            rid = create_or_upd_explore_table(base, abs_path, rid, tb=tb_ip_port, **kwargs)
+            
+            try:
+                rid = create_or_upd_explore_table(base, abs_path, rid, tb=tb_ip_port, **kwargs)
+            except ConnectionError:
+                rid = create_or_upd_explore_table(base, abs_path, None, tb=tb_ip_port, **kwargs)
+            
             if prt:
                 print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] {des}ed')
             if os.path.exists(terminate_file):
