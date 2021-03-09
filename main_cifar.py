@@ -541,8 +541,8 @@ def main_worker(args, dist: TorchDistManager):
             for des, ta, ba in zip(descriptions, topk_accs, best_accs)
         })
         res_str = (
-            f' mean-top accs @ (min={topk_accs.min():.3f}, mean={topk_accs.mean():.3f}, std={topk_accs.std():.3f}) {str(topk_accs).replace(chr(10), " ")})\n'
-            f' best     accs @ (min={best_accs.min():.3f}, mean={best_accs.mean():.3f}, std={best_accs.std():.3f}) {str(best_accs).replace(chr(10), " ")})'
+            f' mean-top accs @ (max={topk_accs.max():.3f}, mean={topk_accs.mean():.3f}, std={topk_accs.std():.3f}) {str(topk_accs).replace(chr(10), " ")})\n'
+            f' best     accs @ (max={best_accs.max():.3f}, mean={best_accs.mean():.3f}, std={best_accs.std():.3f}) {str(best_accs).replace(chr(10), " ")})'
         )
         lg.info(
             f'==> pre-training finished,'
