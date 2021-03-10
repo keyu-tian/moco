@@ -4,6 +4,7 @@ import os
 import time
 from copy import deepcopy
 from datetime import datetime
+import random
 from logging import Logger
 from pprint import pformat as pf
 from typing import NamedTuple, Optional, List, Union
@@ -342,7 +343,7 @@ def pretrain_or_linear_eval(
         if epoch % 5 == 0 and dist.is_master():
             em_t = time.time()
             torch.cuda.empty_cache()
-            os.system(f'echo -e "\033[36m @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:3f}s \033[0m"')
+            os.system(f'echo -e "\033[36m @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s \033[0m"')
         
         start_t = time.time()
         tr_loss = train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_ld, tr_iters_per_ep, model, params, optimizer, avgs)
@@ -475,11 +476,13 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         sche_lr = adjust_learning_rate(op, cur_iter, max_iter, meta.lr, meta)
         orig_norm = torch.nn.utils.clip_grad_norm_(params, meta.grad_clip)
         actual_lr = sche_lr * min(1, meta.grad_clip / orig_norm)
-        g_tb_lg.add_scalar(f'{prefix}/orig_norm', orig_norm, cur_iter)
-        g_tb_lg.add_scalars(f'{prefix}/lr', {'scheduled': sche_lr, 'actual': actual_lr}, cur_iter)
         
         op.step()
         back_t = time.time()
+        
+        if cur_iter < 10 or cur_iter % log_iters == 0 or (actual_lr < sche_lr - 1e-6 and random.randrange(4) == 0):
+            g_tb_lg.add_scalar(f'{prefix}/orig_norm', orig_norm, cur_iter)
+            g_tb_lg.add_scalars(f'{prefix}/lr', {'scheduled': sche_lr, 'actual': actual_lr}, cur_iter)
         
         if cur_iter % log_iters == 0:
             # l_tb_lg.add_scalars(f'{prefix}/tr_loss', {'it': loss_avg.avg}, cur_iter)
