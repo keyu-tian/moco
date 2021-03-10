@@ -50,4 +50,7 @@ fi
 #  mean-top accs @ (min=83.624, mean=83.864, std=0.250) tensor([84.2160, 83.8170, 83.8000, 83.6240]))
 #  best     accs @ (min=83.690, mean=83.943, std=0.248) tensor([84.2800, 83.9400, 83.8600, 83.6900]))
 
-# without init:
+# without init:# pretrain exp-2021-0309-204111-VI_SP_VA_1080TI:
+#  mean-top accs @ (max=85.366, mean=84.990, std=0.270) tensor([84.8440, 85.0000, 84.7520, 85.3660]))
+#  best     accs @ (max=85.410, mean=85.097, std=0.231) tensor([84.9500, 85.1300, 84.9000, 85.4100]))
+
