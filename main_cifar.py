@@ -354,9 +354,9 @@ def pretrain_or_linear_eval(
             test_acc5, test_loss = 0, 0
         else:
             test_acc1, test_acc5, test_loss = eval_test(lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters_per_ep, model, te_ld)
-            l_tb_lg.add_scalar(f'{prefix}/{test_acc_name}5', test_acc5, epoch)
-            l_tb_lg.add_scalar(f'{prefix}/{test_acc_name.replace("acc", "loss")}', test_loss, epoch)
-        l_tb_lg.add_scalar(f'{prefix}/{test_acc_name}1', test_acc1, epoch)
+            l_tb_lg.add_scalar(f'{prefix}/{test_acc_name}5', test_acc5, epoch + 1)
+            l_tb_lg.add_scalar(f'{prefix}/{test_acc_name.replace("acc", "loss")}', test_loss, epoch + 1)
+        l_tb_lg.add_scalar(f'{prefix}/{test_acc_name}1', test_acc1, epoch + 1)
         test_t = time.time()
         
         topk_acc1s.push_q(test_acc1)
