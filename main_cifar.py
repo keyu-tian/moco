@@ -543,7 +543,10 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         loss.backward()
         back_t = time.time()
         sche_lr = adjust_learning_rate(op, cur_iter, max_iter, meta.lr, meta)
-        orig_norm = torch.nn.utils.clip_grad_norm_(params, meta.grad_clip)
+        if cur_iter < tr_iters:
+            orig_norm = torch.nn.utils.clip_grad_norm_(params, meta.grad_clip)
+        else:
+            orig_norm = meta.grad_clip
         actual_lr = sche_lr * min(1, meta.grad_clip / orig_norm)
         clip_t = time.time()
         
@@ -567,7 +570,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
                 f'\n'
                 f'    ep[{ep_str}] it[{it + 1}/{tr_iters}]: L={tr_loss_avg.avg:.2g} {acc_str}\n'
                 f'     {prefix} da[{data_t - last_t:.3f}], cu[{cuda_t - data_t:.3f}], fo[{forw_t - cuda_t:.3f}], ba[{back_t - forw_t:.3f}], '
-                f'cl[{clip_t-back_t:.3f}], op[{step_t-clip_t}]'
+                f'cl[{clip_t-back_t:.3f}], op[{step_t-clip_t:.3f}]'
             )
         
         last_t = time.time()
