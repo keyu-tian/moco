@@ -7,7 +7,7 @@ from datetime import datetime
 import random
 from logging import Logger
 from pprint import pformat as pf
-from typing import NamedTuple, Optional, List, Union
+from typing import NamedTuple, Optional, List, Union, Iterator
 
 import colorama
 import torch
@@ -20,6 +20,7 @@ from torchvision.datasets import CIFAR10
 
 from meta import seatable_fname, run_shell_name
 from model.moco import ModelMoCo
+from utils.data import InfiniteBatchSampler
 from utils.dist import TorchDistManager
 from utils.file import create_files
 from utils.misc import time_str, filter_params, set_seed, AverageMeter, TopKHeap, adjust_learning_rate, accuracy
@@ -127,6 +128,11 @@ def main_process(args, dist: TorchDistManager):
     # assert dist.dev_idx == gpu_dev_idx
     
     args.descs = [f'rk{rk:02d}' for rk in range(dist.world_size)]
+    args.num_classes = {
+        'cifar10': 10,
+        'cifar100': 100,
+        'imagenet': 1000,
+    }[args.dataset]
     # todo: change desc when doing a grid search
     
     args.loc_desc = args.descs[dist.rank]
@@ -187,22 +193,41 @@ def main_process(args, dist: TorchDistManager):
     ds_root = args.ds_root or os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
     
     assert not args.torch_ddp
-    # todo: InfiniteBatchSampler
     lg.info(f'=> [main]: prepare train_data: {args.dataset} (ddp={args.torch_ddp})')
     pret_data = CIFAR10Pair(root=ds_root, train=True, transform=pret_transform, download=False)
-    pret_loader = DataLoader(pret_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=True)
+    pret_loader = DataLoader(
+        pret_data, num_workers=args.num_workers, pin_memory=args.pin_mem, batch_sampler=InfiniteBatchSampler(
+            dataset_len=len(pret_data), batch_size=args.batch_size, shuffle=True, drop_last=False, filling=True,
+        )
+    )
+    pret_iters, pret_itrt = len(pret_loader), iter(pret_loader)
     
     lg.info(f'=> [main]: prepare knn_data: {args.dataset} (ddp={args.torch_ddp})')
     knn_data = CIFAR10(root=ds_root, train=True, transform=test_transform, download=False)
-    knn_loader = DataLoader(knn_data, batch_size=args.batch_size * 2, shuffle=False, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=False)
+    knn_loader = DataLoader(
+        knn_data, num_workers=args.num_workers, pin_memory=args.pin_mem, batch_sampler=InfiniteBatchSampler(
+            dataset_len=len(knn_data), batch_size=args.batch_size * 2, shuffle=False, drop_last=False, filling=False,
+        )
+    )
+    knn_iters, knn_itrt = len(knn_loader), iter(knn_loader)
     
     lg.info(f'=> [main]: prepare test_data: {args.dataset} (ddp={args.torch_ddp})')
     test_data = CIFAR10(root=ds_root, train=False, transform=test_transform, download=False)
-    test_loader = DataLoader(test_data, batch_size=args.batch_size * 2, shuffle=False, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=False)
+    test_loader = DataLoader(
+        test_data, num_workers=args.num_workers, pin_memory=args.pin_mem, batch_sampler=InfiniteBatchSampler(
+            dataset_len=len(test_data), batch_size=args.batch_size * 2, shuffle=False, drop_last=False, filling=False,
+        )
+    )
+    test_iters, test_itrt = len(test_loader), iter(test_loader)
     
     lg.info(f'=> [main]: prepare eval_data: {args.dataset} (ddp={args.torch_ddp})')
     eval_data = CIFAR10(root=ds_root, train=True, transform=eval_transform, download=False)
-    eval_loader = DataLoader(eval_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=True)
+    eval_loader = DataLoader(
+        eval_data, num_workers=args.num_workers, pin_memory=args.pin_mem, batch_sampler=InfiniteBatchSampler(
+            dataset_len=len(eval_data), batch_size=args.batch_size, shuffle=True, drop_last=False, filling=True,
+        )
+    )
+    eval_iters, eval_itrt = len(eval_loader), iter(eval_loader)
     
     lg.info(
         f'=> [main]: create the moco model: (ddp={args.torch_ddp})\n'
@@ -211,7 +236,7 @@ def main_process(args, dist: TorchDistManager):
         f'     sync bn={args.sbn}, mlp={args.mlp}, symmetric loss={args.moco_symm}'
     )
     # create model
-    model = ModelMoCo(
+    pretrain_model = ModelMoCo(
         lg=lg,
         torch_ddp=args.torch_ddp,
         arch=args.arch,
@@ -224,22 +249,43 @@ def main_process(args, dist: TorchDistManager):
         symmetric=args.moco_symm,
         init=args.init
     ).cuda()
+
+    lnr_eval_model = ModelMoCo(
+        lg=lg,
+        torch_ddp=args.torch_ddp,
+        arch=args.arch,
+        dim=args.num_classes,
+        K=args.moco_k,  # queue size
+        m=args.moco_m,  # ema momentum
+        T=args.moco_t,  # temperature
+        sbn=args.sbn,
+        mlp=args.mlp,
+        symmetric=args.moco_symm,
+        init=args.init
+    ).cuda()
     
     if args.eval_resume_ckpt is None:
         pretrain_or_linear_eval(
-            (knn_loader, len(knn_loader), args.knn_k, args.knn_t), ExpMeta(
+            (knn_iters, knn_itrt, args.knn_k, args.knn_t, knn_loader.dataset.targets), args.num_classes, ExpMeta(
                 args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.resume_ckpt,
                 args.epochs, args.lr, args.wd, args.nowd, args.coslr, args.schedule, args.warmup, args.grad_clip
             ),
-            lg, g_tb_lg, l_tb_lg, dist, model, pret_loader, test_loader
+            lg, g_tb_lg, l_tb_lg, dist, pretrain_model, pret_iters, pret_itrt, test_iters, test_itrt
         )
+        d = pretrain_model.encoder_q.state_dict()
+        ks = deepcopy(list(d.keys()))
+        for k in ks:
+            if k.startswith('fc.'):
+                del d[k]
+        msg = lnr_eval_model.encoder_q.load_state_dict(d, strict=False)
+        assert all(k.startswith('fc.') for k in msg)
     
     pretrain_or_linear_eval(
-        None, ExpMeta(
+        None, args.num_classes, ExpMeta(
             args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.eval_resume_ckpt,
             args.eval_epochs, args.eval_lr, args.eval_wd, args.eval_nowd, args.eval_coslr, args.eval_schedule, args.eval_warmup, args.eval_grad_clip
         ),
-        lg, g_tb_lg, l_tb_lg, dist, model.encoder_q, eval_loader, test_loader
+        lg, g_tb_lg, l_tb_lg, dist, lnr_eval_model.encoder_q, eval_iters, eval_itrt, test_iters, test_itrt
     )
     
     g_tb_lg.close()
@@ -269,25 +315,28 @@ class ExpMeta(NamedTuple):
 
 
 def pretrain_or_linear_eval(
-        pretrain_knn_args,
+        pretrain_knn_args, num_classes: int,
         meta: ExpMeta, lg: Logger, g_tb_lg: SummaryWriter, l_tb_lg: SummaryWriter,
-        dist: TorchDistManager, model: Union[ModelMoCo, torch.nn.Module], tr_ld: DataLoader, te_ld: DataLoader
+        dist: TorchDistManager, model: Union[ModelMoCo, torch.nn.Module],
+        tr_iters: int, tr_itrt: Iterator[DataLoader], te_iters: int, te_itrt: Iterator[DataLoader],
+        
 ):
     is_pretrain = pretrain_knn_args is not None
     prefix = 'pretrain' if is_pretrain else 'lnr_eval'
     test_acc_name = 'knn_acc' if is_pretrain else 'test_acc'
     assert is_pretrain == isinstance(model, ModelMoCo)
     
-    tr_iters_per_ep, te_iters_per_ep = len(tr_ld), len(te_ld)
     if not meta.coslr:
-        lg.info(f'=> [{prefix}]: origin lr schedule={meta.schedule} ({type(meta.schedule)})')
-        if isinstance(meta.schedule, str):
-            meta.schedule = eval(meta.schedule)
-            assert isinstance(meta.schedule, list)
-        meta.schedule = sorted(meta.schedule)
-        for i, milestone_epoch in enumerate(meta.schedule):
-            meta.schedule[i] = milestone_epoch * tr_iters_per_ep
-        lg.info(f'=> [{prefix}]: updated lr schedule={meta.schedule} ({type(meta.schedule)})')
+        sc = meta.schedule
+        lg.info(f'=> [{prefix}]: origin lr schedule={sc} ({type(sc)})')
+        if isinstance(sc, str):
+            sc = eval(sc)
+            assert isinstance(sc, list)
+        sc = sorted(sc)
+        for i, milestone_epoch in enumerate(sc):
+            sc[i] = milestone_epoch * tr_iters
+        lg.info(f'=> [{prefix}]: updated lr schedule={sc} ({type(sc)})')
+        meta = meta._replace(schedule=sc)
     
     # load model if resume
     epoch_start = 0
@@ -333,9 +382,9 @@ def pretrain_or_linear_eval(
     
     loop_start_t = time.time()
     epoch_speed = AverageMeter(3)
-    tr_loss_avg = AverageMeter(tr_iters_per_ep)
-    tr_acc1_avg = AverageMeter(tr_iters_per_ep)
-    tr_acc5_avg = AverageMeter(tr_iters_per_ep)
+    tr_loss_avg = AverageMeter(tr_iters)
+    tr_acc1_avg = AverageMeter(tr_iters)
+    tr_acc5_avg = AverageMeter(tr_iters)
     avgs = (tr_loss_avg, tr_acc1_avg, tr_acc5_avg)
     for epoch in range(epoch_start, meta.epochs):
         ep_str = f'%{len(str(meta.epochs))}d'
@@ -346,14 +395,14 @@ def pretrain_or_linear_eval(
             os.system(f'echo -e "\033[36m @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s \033[0m"')
         
         start_t = time.time()
-        tr_loss = train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_ld, tr_iters_per_ep, model, params, optimizer, avgs)
+        tr_loss = train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_iters, tr_itrt, model, params, optimizer, avgs)
         train_t = time.time()
         
         if is_pretrain:
-            test_acc1 = knn_test(lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters_per_ep, model.encoder_q, te_ld, pretrain_knn_args)
+            test_acc1 = knn_test(lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters, te_itrt, model.encoder_q, pretrain_knn_args, num_classes)
             test_acc5, test_loss = 0, 0
         else:
-            test_acc1, test_acc5, test_loss = eval_test(lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters_per_ep, model, te_ld)
+            test_acc1, test_acc5, test_loss = eval_test(lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters, te_itrt, model, num_classes)
             l_tb_lg.add_scalar(f'{prefix}/{test_acc_name}5', test_acc5, epoch + 1)
             l_tb_lg.add_scalar(f'{prefix}/{test_acc_name.replace("acc", "loss")}', test_loss, epoch + 1)
         l_tb_lg.add_scalar(f'{prefix}/{test_acc_name}1', test_acc1, epoch + 1)
@@ -437,22 +486,23 @@ def pretrain_or_linear_eval(
 
 
 # pretrain for one epoch
-def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_ld, iters_per_ep, model, params, op, avgs):
+def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_iters, tr_itrt, model, params, op, avgs):
     if is_pretrain:
         model.train()
     else:
         model.eval()
     
     tr_loss_avg, tr_acc1_avg, tr_acc5_avg = avgs
-    log_iters = iters_per_ep // meta.log_freq
+    log_iters = tr_iters // meta.log_freq
     
     tot_loss, tot_num = 0.0, 0
     last_t = time.time()
-    for it, (data1, data2) in enumerate(tr_ld):
+    for it in range(tr_iters):
+        data1, data2 = next(tr_itrt)
         data_t = time.time()
         bs = data1.shape[0]
-        cur_iter = it + epoch * iters_per_ep
-        max_iter = meta.epochs * iters_per_ep
+        cur_iter = it + epoch * tr_iters
+        max_iter = meta.epochs * tr_iters
         data1, data2 = data1.cuda(non_blocking=True), data2.cuda(non_blocking=True)
         cuda_t = time.time()
         
@@ -495,7 +545,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
                 l_tb_lg.add_scalar(f'{prefix}/train_acc5', tr_acc5_avg.avg, cur_iter)
             lg.info(
                 f'\n'
-                f'    ep[{ep_str}] it[{it + 1}/{iters_per_ep}]: L={tr_loss_avg.avg:.2g} {acc_str}\n'
+                f'    ep[{ep_str}] it[{it + 1}/{tr_iters}]: L={tr_loss_avg.avg:.2g} {acc_str}\n'
                 f'     {prefix} da[{data_t - last_t:.3f}], cu[{cuda_t - data_t:.3f}], fo[{forw_t - cuda_t:.3f}], ba[{back_t - forw_t:.3f}]'
             )
         
@@ -505,44 +555,45 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
 
 
 # test using a knn monitor
-def knn_test(lg, l_tb_lg, dist, log_freq, epoch, ep_str, te_iters_per_ep, moco_encoder_q, test_ld, knn_args):
-    knn_ld, knn_iters_per_ep, knn_k, knn_t = knn_args
-    log_iters = te_iters_per_ep // log_freq
+def knn_test(lg, l_tb_lg, dist, log_freq, epoch, ep_str, te_iters, te_itrt, moco_encoder_q, knn_args, num_classes):
+    knn_iters, knn_itrt, knn_k, knn_t, targets = knn_args
+    log_iters = te_iters // log_freq
     
     moco_encoder_q.eval()
-    num_classes = len(knn_ld.dataset.classes)
     total_top1, total_top5, total_num, feature_bank = 0.0, 0.0, 0, []
     with torch.no_grad():
         # generate feature bank
-        for it, (data, target) in enumerate(knn_ld):
-            feature = moco_encoder_q(data.cuda(non_blocking=True))
+        for it in range(knn_iters):
+            inp, tar = next(knn_itrt)
+            feature = moco_encoder_q(inp.cuda(non_blocking=True))
             feature = F.normalize(feature, dim=1)
             feature_bank.append(feature)
         # [D, N]
         feature_bank = torch.cat(feature_bank, dim=0).t().contiguous()
         # [N]
-        feature_labels = torch.tensor(knn_ld.dataset.targets, device=feature_bank.device)
+        feature_labels = torch.tensor(targets, device=feature_bank.device)
         
         # loop test data to predict the label by weighted knn search
         last_t = time.time()
-        for it, (data, target) in enumerate(test_ld):
+        for it in range(te_iters):
+            inp, tar = next(te_itrt)
             data_t = time.time()
-            data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
+            inp, tar = inp.cuda(non_blocking=True), tar.cuda(non_blocking=True)
             cuda_t = time.time()
-            feature = moco_encoder_q(data)
+            feature = moco_encoder_q(inp)
             feature = F.normalize(feature, dim=1)
             fea_t = time.time()
             
             pred_labels = knn_predict(feature, feature_bank, feature_labels, num_classes, knn_k, knn_t)
             pred_t = time.time()
             
-            total_num += data.shape[0]
-            total_top1 += (pred_labels[:, 0] == target).float().sum().item()
+            total_num += inp.shape[0]
+            total_top1 += (pred_labels[:, 0] == tar).float().sum().item()
             
             if it % log_iters == 0:
                 cur_te_acc1 = total_top1 / total_num * 100
                 lg.info(
-                    f'     ep[{ep_str}] it[{it + 1}/{te_iters_per_ep}]: *test acc={cur_te_acc1:5.3f}\n'
+                    f'     ep[{ep_str}] it[{it + 1}/{te_iters}]: *test acc={cur_te_acc1:5.3f}\n'
                     f'       da[{data_t - last_t:.3f}], cu[{cuda_t - data_t:.3f}], fe[{fea_t - cuda_t:.3f}], kn[{pred_t - fea_t:.3f}]'
                 )
             
@@ -573,11 +624,13 @@ def knn_predict(feature, feature_bank, feature_labels, classes, knn_k, knn_t):
     return pred_labels
 
 
-def eval_test(lg, l_tb_lg, dist, log_freq, epoch, ep_str, iters_per_ep, moco_encoder_q, test_ld):
+def eval_test(lg, l_tb_lg, dist, log_freq, epoch, ep_str, te_iters, te_itrt, moco_encoder_q, num_classes):
     moco_encoder_q.eval()
     with torch.no_grad():
         tot_acc1, tot_acc5, tot_loss, tot_num = 0, 0, 0, 0
-        for i, (inp, tar) in enumerate(test_ld):
+        for it in range(te_iters):
+            inp, tar = next(te_itrt)
+            assert tar.shape[1] == num_classes
             bs = inp.shape[0]
             inp, tar = inp.cuda(non_blocking=True), tar.cuda(non_blocking=True)
             oup = moco_encoder_q(inp)

@@ -151,13 +151,13 @@ class ModelMoCo(nn.Module):
 
 
 if __name__ == '__main__':
-    m = ModelMoCo(None, mlp=False)
+    m = ModelMoCo(None, mlp=True)
     q = m.encoder_q
     for name, param in q.named_parameters():
         # print(name, param)
         break
     r = resnet18(num_classes=128)
-
+    print(q.state_dict().keys())
 
 
 
