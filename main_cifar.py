@@ -58,6 +58,9 @@ parser.add_argument('--warmup', action='store_true', help='use warming up')
 parser.add_argument('--wd', default=5e-4, type=float, metavar='W', help='weight decay')
 parser.add_argument('--nowd', action='store_true', help='no wd for params of bn and bias')
 
+parser.add_argument('--pre_g_clp', default=5, type=float, help='max grad norm')
+parser.add_argument('--eva_g_clp', default=5, type=float, help='max grad norm')
+
 # data
 parser.add_argument('--dataset', default='cifar10', choices=['cifar10', 'cifar100', 'imagenet'])
 parser.add_argument('--ds_root', default='', help='dataset root')
@@ -117,7 +120,9 @@ class ModelMoCo(nn.Module):
         
         for param_q, param_k in zip(self.encoder_q.parameters(), self.encoder_k.parameters()):
             param_k.data.copy_(param_q.data)  # initialize
-            param_k.requires_grad = False  # not update by gradient
+            # param_k.requires_grad = False  # not update by gradient
+            param_k.detach_()
+            # todo: detach_() is ok?
         
         # create the queue
         self.register_buffer("queue", torch.randn(dim, K))
@@ -198,7 +203,7 @@ class ModelMoCo(nn.Module):
         # labels: positive key indicators
         labels = torch.zeros(logits.shape[0], dtype=torch.long).cuda()
         
-        loss = nn.CrossEntropyLoss().cuda()(logits, labels)
+        loss = F.cross_entropy(logits, labels)
         
         return loss, q, k
     
@@ -255,7 +260,7 @@ def adjust_learning_rate(optimizer, cur_iter, max_iter, max_lr, args):
 
 
 # train for one epoch
-def train(lg, l_tb_lg, dist, args, epoch, ep_str, iters_per_ep, moco_model, train_ld, train_op, tr_loss_avg):
+def train(lg, g_tb_lg, l_tb_lg, dist, args, epoch, ep_str, iters_per_ep, moco_model, train_ld, train_op, tr_loss_avg):
     moco_model.train()
     log_iters = iters_per_ep // args.log_freq
     
@@ -265,7 +270,6 @@ def train(lg, l_tb_lg, dist, args, epoch, ep_str, iters_per_ep, moco_model, trai
         data_t = time.time()
         cur_iter = it + epoch * iters_per_ep
         max_iter = args.epochs * iters_per_ep
-        adjust_learning_rate(train_op, cur_iter, max_iter, args.lr, args)
         
         im_1, im_2 = im_1.cuda(non_blocking=True), im_2.cuda(non_blocking=True)
         cuda_t = time.time()
@@ -275,6 +279,13 @@ def train(lg, l_tb_lg, dist, args, epoch, ep_str, iters_per_ep, moco_model, trai
         
         train_op.zero_grad()
         loss.backward()
+        
+        sche_lr = adjust_learning_rate(train_op, cur_iter, max_iter, args.lr, args)
+        orig_norm = torch.nn.utils.clip_grad_norm_(moco_model.parameters(), args.pre_g_clp)
+        actual_lr = sche_lr * min(1, args.pre_g_clp / orig_norm)
+        g_tb_lg.add_scalar('pretrain/orig_norm', orig_norm, cur_iter)
+        g_tb_lg.add_scalars('pretrain/lr', {'scheduled': sche_lr, 'actual': actual_lr}, cur_iter)
+        
         train_op.step()
         back_t = time.time()
         
@@ -511,7 +522,7 @@ def main_worker(args, dist: TorchDistManager):
             torch.cuda.empty_cache()
         
         start_t = time.time()
-        tr_loss = train(lg, l_tb_lg, dist, args, epoch, ep_str, tr_iters_per_ep, model, train_loader, optimizer, tr_loss_avg)
+        tr_loss = train(lg, g_tb_lg, l_tb_lg, dist, args, epoch, ep_str, tr_iters_per_ep, model, train_loader, optimizer, tr_loss_avg)
         train_t = time.time()
         l_tb_lg.add_scalars('pretrain/tr_loss', {'ep': tr_loss}, (epoch + 1) * tr_iters_per_ep)
         
@@ -563,7 +574,7 @@ def main_worker(args, dist: TorchDistManager):
         
         if dist.is_master():
             seatable_kw.update(dict(
-                knn_acc=best_accs.mean().item(), pr=1., rem=0,
+                knn_acc=best_accs.mean().item(), pr=1., rem=0, lr=f'{args.lr:.1g}',
                 end_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             ))
             save_seatable_file(args.exp_root, seatable_kw)
