@@ -83,6 +83,9 @@ parser.add_argument('--pin_mem', action='store_true')
 parser.add_argument('--knn_k', default=200, type=int, help='k in kNN monitor')
 parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperature in kNN monitor; could be different with moco-t')
 
+# explore
+parser.add_argument('--swap_iters', default=None, type=int)
+
 
 class CIFAR10Pair(CIFAR10):
     def __getitem__(self, index):
@@ -186,6 +189,13 @@ def main_process(args, dist: TorchDistManager):
         transforms.ToTensor(),
         transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
     ])
+    if args.swap_iters is not None:
+        pret_transform = swap_transform
+        # todo!!!!
+        # todo!!!!
+        # todo!!!!
+        # todo!!!!
+        
     test_transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
