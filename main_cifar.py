@@ -585,7 +585,7 @@ def eval_test(lg, l_tb_lg, dist, log_freq, epoch, ep_str, iters_per_ep, moco_enc
             tot_loss += loss.item() * bs
             tot_num += bs
         
-        return tot_acc1 / tot_num * 100, tot_acc5 / tot_num * 100, tot_loss / tot_num
+        return tot_acc1 / tot_num, tot_acc5 / tot_num, tot_loss / tot_num
 
 
 def sanity_check(current_state, initial_state):
