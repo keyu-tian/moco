@@ -18,6 +18,7 @@ python -u -m main_cifar \
 --moco_symm \
 --epochs=200 \
 --coslr \
+--eval_epochs=100 \
 --dataset=cifar10 \
 --num_workers=4 \
 --pin_mem \
