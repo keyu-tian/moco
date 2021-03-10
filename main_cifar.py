@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import CIFAR10
 
+from aug_op.ops import AutoContrast, Sharpness
 from meta import seatable_fname, run_shell_name
 from model.moco import ModelMoCo
 from utils.data import InfiniteBatchSampler
@@ -174,6 +175,14 @@ def main_process(args, dist: TorchDistManager):
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
         transforms.RandomGrayscale(p=0.2),
+        transforms.ToTensor(),
+        transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
+    ])
+    swap_transform = transforms.Compose([
+        transforms.RandomResizedCrop(32),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomApply([AutoContrast()], p=0.8),
+        transforms.RandomApply([Sharpness(Sharpness.RANGES[4])], p=0.5),
         transforms.ToTensor(),
         transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
     ])
@@ -630,10 +639,10 @@ def eval_test(lg, l_tb_lg, dist, log_freq, epoch, ep_str, te_iters, te_itrt, moc
         tot_acc1, tot_acc5, tot_loss, tot_num = 0, 0, 0, 0
         for it in range(te_iters):
             inp, tar = next(te_itrt)
-            assert tar.shape[1] == num_classes
             bs = inp.shape[0]
             inp, tar = inp.cuda(non_blocking=True), tar.cuda(non_blocking=True)
             oup = moco_encoder_q(inp)
+            assert oup.shape[1] == num_classes
             loss = F.cross_entropy(oup, tar)
             acc1, acc5 = accuracy(oup, tar, topk=(1, 5))
             tot_acc1 += acc1 * bs
