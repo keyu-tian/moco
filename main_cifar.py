@@ -421,14 +421,10 @@ def pretrain_or_linear_eval(
                 end_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 **kw
             )
-            ra, rb = res_str.splitlines()
+            lines = res_str.splitlines()
+            strs = ''.join([f'# {l}\n' for l in lines])
             with open(run_shell_name, 'a') as fp:
-                print(
-                    f'\n# {prefix} {meta.exp_dirname}:\n'
-                    f'# {ra}\n'
-                    f'# {rb}\n'
-                    , file=fp
-                )
+                print(f'\n# {prefix} {meta.exp_dirname}:\n{strs}', file=fp)
         
         if is_pretrain:  # sync parameters
             src_rank = topk_accs.argmax().item()
