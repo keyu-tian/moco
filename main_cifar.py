@@ -50,7 +50,7 @@ parser.add_argument('--moco_symm', action='store_true', help='use a symmetric lo
 parser.add_argument('--epochs', default=200, type=int, metavar='N', help='number of total epochs to run')
 parser.add_argument('--batch_size', default=512, type=int, metavar='N', help='mini-batch size')
 # lr: 0.06 for batch 512 (or 0.03 for batch 256)
-parser.add_argument('--lr', default=0.06, type=float, metavar='LR', help='initial learning rate', dest='lr')
+parser.add_argument('--lr', default=0.06, type=float, metavar='LR', help='initial learning rate')
 parser.add_argument('--coslr', action='store_true', help='use cosine lr schedule')
 parser.add_argument('--schedule', default=[120, 160], nargs='*', type=int, help='learning rate schedule (when to drop lr by 10x); does not take effect if --coslr is on')
 parser.add_argument('--warmup', action='store_true', help='use warming up')
@@ -62,7 +62,7 @@ parser.add_argument('--grad_clip', default=5, type=float, help='max grad norm')
 parser.add_argument('--eval_epochs', default=100, type=int, metavar='N', help='number of total epochs to run')
 parser.add_argument('--eval_batch_size', default=512, type=int, metavar='N', help='mini-batch size')
 # lr: 0.06 for batch 512 (or 0.03 for batch 256)
-parser.add_argument('--eval_lr', default=30, type=float, metavar='LR', help='initial learning rate', dest='lr')
+parser.add_argument('--eval_lr', default=30, type=float, metavar='LR', help='initial learning rate')
 parser.add_argument('--eval_coslr', action='store_true', help='use cosine lr schedule')
 parser.add_argument('--eval_schedule', default=[60, 80], nargs='*', type=int, help='learning rate schedule (when to drop lr by 10x); does not take effect if --coslr is on')
 parser.add_argument('--eval_warmup', action='store_true', help='use warming up')
@@ -461,15 +461,17 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         
         if is_pretrain:
             loss = model(data1, data2)
-            tr_loss_avg.update(loss.item(), bs)
         else:
             oup = model(data1)
             loss = F.cross_entropy(oup, data2)
             acc1, acc5 = accuracy(oup, data2, topk=(1, 5))
             tr_acc1_avg.update(acc1, bs)
             tr_acc5_avg.update(acc5, bs)
-        
+        l = loss.item()
+        tr_loss_avg.update(l, bs)
         tot_num += bs
+        tot_loss += l
+        
         forw_t = time.time()
         
         op.zero_grad()
