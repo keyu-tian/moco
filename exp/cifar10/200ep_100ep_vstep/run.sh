@@ -13,7 +13,6 @@ srun \
 python -u -m main_cifar \
 --main_py_rel_path="${REL_PATH}" \
 --exp_dirname="${EXP_DIR}" \
---seed_base=0 \
 --moco_m=0.99 \
 --moco_t=0.1 \
 --moco_symm \
@@ -22,11 +21,11 @@ python -u -m main_cifar \
 --dataset=cifar10 \
 --num_workers=4 \
 --pin_mem \
---init \
 #--sbn \
 #--warmup
 #--nowd
 #--mlp
+#--seed_base=0 \
 
 #--resume_ckpt=
 
@@ -46,7 +45,4 @@ else
   touch "${EXP_DIR}".terminate
 fi
 
-# pretrain exp-2021-0309-120416-VI_SP_VA_1080TI:
-#  mean-top accs @ (min=83.829, mean=84.087, std=0.242) tensor([84.4080, 84.0120, 84.1000, 83.8290]))
-#  best     accs @ (min=83.920, mean=84.162, std=0.236) tensor([84.4800, 84.0800, 84.1700, 83.9200]))
 

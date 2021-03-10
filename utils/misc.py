@@ -1,8 +1,8 @@
 import datetime
 import heapq
+import math
 import os
 import random
-import socket
 import time
 from collections import defaultdict
 
@@ -30,10 +30,10 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
 
 
-class MaxHeap(list):
+class TopKHeap(list):
     
     def __init__(self, maxsize):
-        super(MaxHeap, self).__init__()
+        super(TopKHeap, self).__init__()
         self.maxsize = maxsize
         assert self.maxsize >= 1
     
@@ -74,7 +74,7 @@ class AverageMeter(object):
     def update(self, val, num=1):
         self.val_sum += val * num
         self.num_sum += num
-        self.last = val
+        self.last = val / num
         if self.queuing:
             self.val_history.append(val)
             self.num_history.append(num)
@@ -248,3 +248,45 @@ def filter_params(model: torch.nn.Module):
     
     # return param_groups, type2num
     return param_groups
+
+
+def adjust_learning_rate(optimizer, cur_iter, max_iter, max_lr, meta):
+    """Decay the learning rate based on schedule"""
+    warmup_iters = max_iter // 100
+    if meta.warmup and cur_iter <= warmup_iters:
+        ratio = cur_iter / warmup_iters
+        base_lr = max_lr / 5
+        lr = base_lr + ratio * (max_lr - base_lr)
+    
+    elif meta.coslr:  # cosine lr schedule
+        if meta.warmup:
+            ratio = (cur_iter - warmup_iters) / (max_iter - 1 - warmup_iters)
+        else:
+            ratio = cur_iter / (max_iter - 1)
+        lr = max_lr * 0.5 * (1. + math.cos(math.pi * ratio))
+    else:  # stepwise lr schedule
+        lr = max_lr
+        for milestone in meta.schedule:
+            lr *= 0.1 if cur_iter / max_iter >= milestone else 1.
+    
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+    
+    return lr
+
+
+def accuracy(output, target, topk=(1,)):
+    with torch.no_grad():
+        maxk = max(topk)
+        batch_size = target.size(0)
+        
+        _, pred = output.topk(maxk, 1, True, True)
+        pred = pred.t()
+        correct = pred.eq(target.view(1, -1).expand_as(pred))
+        
+        res = []
+        for k in topk:
+            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+            res.append(correct_k.mul_(100.0 / batch_size))
+        return res
+

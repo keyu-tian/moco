@@ -14,9 +14,9 @@ from seatable_api import Base
 from meta import seatable_fname
 
 tag_choices = [
-    'mlp', 'sbn', 'cos',
-    'wp', 'nowd',
-    'sym', 'init',
+    'mlp', 'sbn', 'sym', 'init',
+    'cos', 'wp', 'nowd',
+    'v_cos', 'v_wp', 'v_nowd',
 ]
 
 
