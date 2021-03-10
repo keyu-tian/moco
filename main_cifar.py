@@ -150,7 +150,7 @@ def main_process(args, dist: TorchDistManager):
         lg.info(f'=> [main]: using {"the same seed" if same_seed else "diff seeds"}')
     
     upd_seatable_file(
-        args, dist,
+        args.exp_root, dist,
         gpu=dist.world_size if args.torch_ddp else 1,
         ds=args.dataset,
         # mom=args.moco_m,
