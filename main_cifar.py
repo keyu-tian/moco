@@ -537,17 +537,18 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         tr_loss_avg.update(l, bs)
         tot_num += bs
         tot_loss += l
-        
         forw_t = time.time()
         
         op.zero_grad()
         loss.backward()
+        back_t = time.time()
         sche_lr = adjust_learning_rate(op, cur_iter, max_iter, meta.lr, meta)
         orig_norm = torch.nn.utils.clip_grad_norm_(params, meta.grad_clip)
         actual_lr = sche_lr * min(1, meta.grad_clip / orig_norm)
+        clip_t = time.time()
         
         op.step()
-        back_t = time.time()
+        step_t = time.time()
         
         if cur_iter < 10 or cur_iter % log_iters == 0 or (actual_lr < sche_lr - 1e-6 and random.randrange(8) == 0):
             g_tb_lg.add_scalar(f'{prefix}/orig_norm', orig_norm, cur_iter)
@@ -565,7 +566,8 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
             lg.info(
                 f'\n'
                 f'    ep[{ep_str}] it[{it + 1}/{tr_iters}]: L={tr_loss_avg.avg:.2g} {acc_str}\n'
-                f'     {prefix} da[{data_t - last_t:.3f}], cu[{cuda_t - data_t:.3f}], fo[{forw_t - cuda_t:.3f}], ba[{back_t - forw_t:.3f}]'
+                f'     {prefix} da[{data_t - last_t:.3f}], cu[{cuda_t - data_t:.3f}], fo[{forw_t - cuda_t:.3f}], ba[{back_t - forw_t:.3f}], '
+                f'cl[{clip_t-back_t:.3f}], op[{step_t-clip_t}]'
             )
         
         last_t = time.time()
