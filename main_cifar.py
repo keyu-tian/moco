@@ -480,7 +480,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         op.step()
         back_t = time.time()
         
-        if cur_iter < 10 or cur_iter % log_iters == 0 or (actual_lr < sche_lr - 1e-6 and random.randrange(4) == 0):
+        if cur_iter < 10 or cur_iter % log_iters == 0 or (actual_lr < sche_lr - 1e-6 and random.randrange(8) == 0):
             g_tb_lg.add_scalar(f'{prefix}/orig_norm', orig_norm, cur_iter)
             g_tb_lg.add_scalars(f'{prefix}/lr', {'scheduled': sche_lr, 'actual': actual_lr}, cur_iter)
         
