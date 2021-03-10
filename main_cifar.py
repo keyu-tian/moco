@@ -278,7 +278,7 @@ def main_process(args, dist: TorchDistManager):
             if k.startswith('fc.'):
                 del d[k]
         msg = lnr_eval_model.encoder_q.load_state_dict(d, strict=False)
-        assert all(k.startswith('fc.') for k in msg)
+        assert len(msg.unexpected_keys) == 0 and all(k.startswith('fc.') for k in msg.missing_keys)
     
     pretrain_or_linear_eval(
         None, args.num_classes, ExpMeta(

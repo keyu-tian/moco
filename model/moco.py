@@ -157,7 +157,17 @@ if __name__ == '__main__':
         # print(name, param)
         break
     r = resnet18(num_classes=128)
-    print(q.state_dict().keys())
+    kk = list(q.state_dict().keys())
+    d = q.state_dict()
+    for k in kk:
+        if k.startswith('fc.'):
+            del d[k]
+    
+    msg = q.load_state_dict(d, strict=False)
+    print(msg)
+
+    assert len(msg.unexpected_keys) == 0 and all(k.startswith('fc.') for k in msg.missing_keys)
+    
 
 
 
