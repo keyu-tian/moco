@@ -226,6 +226,11 @@ def main_process(args, dist: TorchDistManager):
     ])
     
     ds_root = args.ds_root or os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
+    ds_choice = torch.randperm(8)[0]
+    dist.broadcast(ds_choice, 0)
+    ds_choice = ds_choice.item()
+    ds_root += f'_{ds_choice}'
+    master_echo(dist.is_master(), f'[dataset] choice={ds_choice}')
     
     assert not args.torch_ddp
     data_kw = dict(num_workers=args.num_workers, pin_memory=args.pin_mem)
@@ -235,7 +240,7 @@ def main_process(args, dist: TorchDistManager):
         pret_data, batch_sampler=InfiniteBatchSampler(len(pret_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),
         **data_kw)
     pret_iters, pret_itrt = len(pret_loader), iter(pret_loader)
-    lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
+    lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {ds_root}')
     
     swap_data = CIFAR10Pair(root=ds_root, train=True, transform=swap_transform, download=False)
     swap_loader = DataLoader(
@@ -250,7 +255,7 @@ def main_process(args, dist: TorchDistManager):
         knn_data, batch_sampler=InfiniteBatchSampler(len(knn_data), args.batch_size * 2, shuffle=False, drop_last=False, fill_last=False),
         **data_kw)
     knn_iters, knn_itrt = len(knn_loader), iter(knn_loader)
-    lg.info(f'=> [main]: prepare knn_data (iters={knn_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
+    lg.info(f'=> [main]: prepare knn_data  (iters={knn_iters }, ddp={args.torch_ddp}): @ {args.dataset}')
     
     test_data = CIFAR10(root=ds_root, train=False, transform=test_transform, download=False)
     test_loader = DataLoader(
@@ -600,9 +605,9 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         step_t = time.time()
         
         if cur_iter < 10 or cur_iter % log_iters == 0 or (actual_lr < sche_lr - 1e-6 and random.randrange(8) == 0):
-            g_tb_lg.add_scalar(f'{prefix}/orig_norm', orig_norm, cur_iter)
             g_tb_lg.add_scalars(f'{prefix}/lr', {'scheduled': sche_lr}, cur_iter)
             if clipping:
+                g_tb_lg.add_scalar(f'{prefix}/orig_norm', orig_norm, cur_iter)
                 g_tb_lg.add_scalars(f'{prefix}/lr', {'actual': actual_lr}, cur_iter)
         
         if cur_iter % log_iters == 0:
