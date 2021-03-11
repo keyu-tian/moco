@@ -653,7 +653,7 @@ def knn_test(lg, l_tb_lg, dist, log_freq, epoch, ep_str, te_iters, te_itrt, moco
             if it % log_iters == 0:
                 cur_te_acc1 = total_top1 / total_num * 100
                 lg.info(
-                    f'     ep[{ep_str}] it[{it + 1}/{te_iters}]: *test acc={cur_te_acc1:5.3f}\n'
+                    f'     ep[{ep_str}] it[{it + 1}/{te_iters}]: *test acc={cur_te_acc1:5.2f}\n'
                     f'       da[{data_t - last_t:.3f}], cu[{cuda_t - data_t:.3f}], fe[{fea_t - cuda_t:.3f}], kn[{pred_t - fea_t:.3f}]'
                 )
             
