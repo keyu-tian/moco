@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import CIFAR10
 
-from aug_op.ops import AutoContrast, Sharpness
+from aug_op.ops import *
 from meta import seatable_fname, run_shell_name
 from model.moco import ModelMoCo
 from utils.data import InfiniteBatchSampler
@@ -35,7 +35,7 @@ parser.add_argument('--exp_dirname', type=str, required=True)
 parser.add_argument('--resume_ckpt', default=None, type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
 parser.add_argument('--eval_resume_ckpt', default=None, type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
 parser.add_argument('--seed_base', default=None, type=int)
-parser.add_argument('--log_freq', default=2, type=int)
+parser.add_argument('--log_freq', default=3, type=int)
 
 # moco
 parser.add_argument('--arch', default='resnet18')
@@ -84,7 +84,10 @@ parser.add_argument('--knn_k', default=200, type=int, help='k in kNN monitor')
 parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperature in kNN monitor; could be different with moco-t')
 
 # explore
+parser.add_argument('--swap_epochs', default=None, type=float)
 parser.add_argument('--swap_iters', default=None, type=int)
+parser.add_argument('--adversarial', action='store_true')
+# todo: adversarial
 
 
 class CIFAR10Pair(CIFAR10):
@@ -132,6 +135,7 @@ def main_process(args, dist: TorchDistManager):
     # assert dist.dev_idx == gpu_dev_idx
     
     args.descs = [f'rk{rk:02d}' for rk in range(dist.world_size)]
+    args.loc_desc = args.descs[dist.rank]
     args.num_classes = {
         'cifar10': 10,
         'cifar100': 100,
@@ -139,12 +143,10 @@ def main_process(args, dist: TorchDistManager):
     }[args.dataset]
     # todo: change desc when doing a grid search
     
-    args.loc_desc = args.descs[dist.rank]
     lg, g_tb_lg, l_tb_lg = create_files(args, dist)
     lg: Logger = lg  # just for the code completion (actually is `DistLogger`)
     g_tb_lg: SummaryWriter = g_tb_lg  # just for the code completion (actually is `DistLogger`)
     l_tb_lg: SummaryWriter = l_tb_lg  # just for the code completion (actually is `DistLogger`)
-    lg.info(f'=> [main]: args:\n{pf(vars(args))}\n')
     
     if args.seed_base is None:
         lg.info(f'=> [main]: args.seed_base is None, no set_seed called')
@@ -172,6 +174,9 @@ def main_process(args, dist: TorchDistManager):
         pr=0, rem=0, beg_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     )
     
+    def get_normalize(ds_name: str):
+        return transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
+    
     assert args.dataset == 'cifar10'
     pret_transform = transforms.Compose([
         transforms.RandomResizedCrop(32),
@@ -179,26 +184,33 @@ def main_process(args, dist: TorchDistManager):
         transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
         transforms.RandomGrayscale(p=0.2),
         transforms.ToTensor(),
-        transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
+        get_normalize(args.dataset)
     ])
+    
+    # todo: here
+    candidates_geo = [
+        ShearX(ShearX.RANGES[4]), ShearY(ShearY.RANGES[4]),
+        TranslateX(TranslateX.RANGES[4]), TranslateY(TranslateY.RANGES[4]),
+        Rotate(Rotate.RANGES[4]),
+    ]
+    candidates_col = [
+        Color(Color.RANGES[4]), Contrast(Contrast.RANGES[4]), Brightness(Brightness.RANGES[4]),
+        Sharpness(Sharpness.RANGES[4]),
+        AutoContrast(), Invert(),
+        
+    ]
     swap_transform = transforms.Compose([
         transforms.RandomResizedCrop(32),
         transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomApply([AutoContrast()], p=0.8),
+        transforms.RandomApply([AutoContrast()], p=0.5),
         transforms.RandomApply([Sharpness(Sharpness.RANGES[4])], p=0.5),
         transforms.ToTensor(),
-        transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
+        get_normalize(args.dataset)
     ])
-    if args.swap_iters is not None:
-        pret_transform = swap_transform
-        # todo!!!!
-        # todo!!!!
-        # todo!!!!
-        # todo!!!!
         
     test_transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
+        get_normalize(args.dataset)
     ])
     eval_transform = transforms.Compose([
         transforms.RandomResizedCrop(32),
@@ -206,47 +218,53 @@ def main_process(args, dist: TorchDistManager):
         # transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
         # transforms.RandomGrayscale(p=0.2),
         transforms.ToTensor(),
-        transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
+        get_normalize(args.dataset)
     ])
     
     ds_root = args.ds_root or os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
     
     assert not args.torch_ddp
-    lg.info(f'=> [main]: prepare train_data: {args.dataset} (ddp={args.torch_ddp})')
+    data_kw = dict(num_workers=args.num_workers, pin_memory=args.pin_mem)
+    
     pret_data = CIFAR10Pair(root=ds_root, train=True, transform=pret_transform, download=False)
     pret_loader = DataLoader(
-        pret_data, num_workers=args.num_workers, pin_memory=args.pin_mem, batch_sampler=InfiniteBatchSampler(
-            dataset_len=len(pret_data), batch_size=args.batch_size, shuffle=True, drop_last=False, filling=True,
-        )
-    )
+        pret_data, batch_sampler=InfiniteBatchSampler(len(pret_data), args.batch_size, shuffle=True, drop_last=False, fill_last=True, seed=0),
+        **data_kw)
     pret_iters, pret_itrt = len(pret_loader), iter(pret_loader)
+    lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
     
-    lg.info(f'=> [main]: prepare knn_data: {args.dataset} (ddp={args.torch_ddp})')
+    swap_data = CIFAR10Pair(root=ds_root, train=True, transform=swap_transform, download=False)
+    swap_loader = DataLoader(
+        swap_data, batch_sampler=InfiniteBatchSampler(len(swap_data), args.batch_size, shuffle=True, drop_last=False, fill_last=True, seed=0),
+        **data_kw)
+    swap_iters, swap_itrt = len(swap_loader), iter(swap_loader)
+    lg.info(f'=> [main]: prepare swap_data (iters={swap_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
+    assert swap_iters == pret_iters
+    
     knn_data = CIFAR10(root=ds_root, train=True, transform=test_transform, download=False)
     knn_loader = DataLoader(
-        knn_data, num_workers=args.num_workers, pin_memory=args.pin_mem, batch_sampler=InfiniteBatchSampler(
-            dataset_len=len(knn_data), batch_size=args.batch_size * 2, shuffle=False, drop_last=False, filling=False,
-        )
-    )
+        knn_data, batch_sampler=InfiniteBatchSampler(len(knn_data), args.batch_size * 2, shuffle=False, drop_last=False, fill_last=False),
+        **data_kw)
     knn_iters, knn_itrt = len(knn_loader), iter(knn_loader)
+    lg.info(f'=> [main]: prepare knn_data (iters={knn_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
     
-    lg.info(f'=> [main]: prepare test_data: {args.dataset} (ddp={args.torch_ddp})')
     test_data = CIFAR10(root=ds_root, train=False, transform=test_transform, download=False)
     test_loader = DataLoader(
-        test_data, num_workers=args.num_workers, pin_memory=args.pin_mem, batch_sampler=InfiniteBatchSampler(
-            dataset_len=len(test_data), batch_size=args.batch_size * 2, shuffle=False, drop_last=False, filling=False,
-        )
-    )
+        test_data, batch_sampler=InfiniteBatchSampler(len(test_data), args.batch_size * 2, shuffle=False, drop_last=False, fill_last=False),
+        **data_kw)
     test_iters, test_itrt = len(test_loader), iter(test_loader)
+    lg.info(f'=> [main]: prepare test_data (iters={test_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
     
-    lg.info(f'=> [main]: prepare eval_data: {args.dataset} (ddp={args.torch_ddp})')
     eval_data = CIFAR10(root=ds_root, train=True, transform=eval_transform, download=False)
     eval_loader = DataLoader(
-        eval_data, num_workers=args.num_workers, pin_memory=args.pin_mem, batch_sampler=InfiniteBatchSampler(
-            dataset_len=len(eval_data), batch_size=args.batch_size, shuffle=True, drop_last=False, filling=True,
-        )
-    )
+        eval_data, batch_sampler=InfiniteBatchSampler(len(eval_data), args.batch_size, shuffle=True, drop_last=False, fill_last=True, seed=None),
+        **data_kw)
     eval_iters, eval_itrt = len(eval_loader), iter(eval_loader)
+    lg.info(f'=> [main]: prepare eval_data (iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
+
+    if args.swap_epochs is not None:
+        args.swap_iters = round(args.swap_epochs * swap_iters)
+    lg.info(f'=> [main]: args:\n{pf(vars(args))}\n')
     
     lg.info(
         f'=> [main]: create the moco model: (ddp={args.torch_ddp})\n'
@@ -285,7 +303,7 @@ def main_process(args, dist: TorchDistManager):
     
     if args.eval_resume_ckpt is None:
         pretrain_or_linear_eval(
-            (knn_iters, knn_itrt, args.knn_k, args.knn_t, knn_loader.dataset.targets), args.num_classes, ExpMeta(
+            (knn_iters, knn_itrt, args.knn_k, args.knn_t, knn_loader.dataset.targets), (args.swap_iters, swap_itrt), args.num_classes, ExpMeta(
                 args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.resume_ckpt,
                 args.epochs, args.lr, args.wd, args.nowd, args.coslr, args.schedule, args.warmup, args.grad_clip
             ),
@@ -300,7 +318,7 @@ def main_process(args, dist: TorchDistManager):
         assert len(msg.unexpected_keys) == 0 and all(k.startswith('fc.') for k in msg.missing_keys)
     
     pretrain_or_linear_eval(
-        None, args.num_classes, ExpMeta(
+        None, None, args.num_classes, ExpMeta(
             args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.eval_resume_ckpt,
             args.eval_epochs, args.eval_lr, args.eval_wd, args.eval_nowd, args.eval_coslr, args.eval_schedule, args.eval_warmup, args.eval_grad_clip
         ),
@@ -331,19 +349,21 @@ class ExpMeta(NamedTuple):
     schedule: List[int]
     warmup: bool
     grad_clip: float
-
+    
 
 def pretrain_or_linear_eval(
-        pretrain_knn_args, num_classes: int,
+        pretrain_knn_args, swap_args,
+        num_classes: int,
         meta: ExpMeta, lg: Logger, g_tb_lg: SummaryWriter, l_tb_lg: SummaryWriter,
         dist: TorchDistManager, model: Union[ModelMoCo, torch.nn.Module],
         tr_iters: int, tr_itrt: Iterator[DataLoader], te_iters: int, te_itrt: Iterator[DataLoader],
         
 ):
+    assert (pretrain_knn_args is None) == (swap_args is None)
     is_pretrain = pretrain_knn_args is not None
+    assert is_pretrain == isinstance(model, ModelMoCo)
     prefix = 'pretrain' if is_pretrain else 'lnr_eval'
     test_acc_name = 'knn_acc' if is_pretrain else 'test_acc'
-    assert is_pretrain == isinstance(model, ModelMoCo)
     
     if not meta.coslr:
         sc = meta.schedule
@@ -414,7 +434,7 @@ def pretrain_or_linear_eval(
             os.system(f'echo -e "\033[36m @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s \033[0m"')
         
         start_t = time.time()
-        tr_loss = train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_iters, tr_itrt, model, params, optimizer, avgs)
+        tr_loss = train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_iters, tr_itrt, model, params, optimizer, avgs, swap_args)
         train_t = time.time()
         
         if is_pretrain:
@@ -505,10 +525,12 @@ def pretrain_or_linear_eval(
 
 
 # pretrain for one epoch
-def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_iters, tr_itrt, model, params, op, avgs):
+def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_iters, tr_itrt, model, params, op, avgs, swap_args=None):
     if is_pretrain:
+        sw_freq, sw_itrt = swap_args
         model.train()
     else:
+        sw_freq, sw_itrt = None, None
         model.eval()
     
     tr_loss_avg, tr_acc1_avg, tr_acc5_avg = avgs
@@ -517,11 +539,18 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
     tot_loss, tot_num = 0.0, 0
     last_t = time.time()
     for it in range(tr_iters):
-        data1, data2 = next(tr_itrt)
-        data_t = time.time()
-        bs = data1.shape[0]
         cur_iter = it + epoch * tr_iters
         max_iter = meta.epochs * tr_iters
+        
+        if is_pretrain:
+            itrt = tr_itrt if (cur_iter // sw_freq & 1) == 0 else sw_itrt
+            # todo: if it is adv., plz change this: every iter should keep the same pace with each other, in other words, they should next(.) together
+            data1, data2 = next(itrt)
+        else:
+            data1, data2 = next(tr_itrt)
+        
+        data_t = time.time()
+        bs = data1.shape[0]
         data1, data2 = data1.cuda(non_blocking=True), data2.cuda(non_blocking=True)
         cuda_t = time.time()
         
@@ -543,7 +572,8 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         loss.backward()
         back_t = time.time()
         sche_lr = adjust_learning_rate(op, cur_iter, max_iter, meta.lr, meta)
-        if cur_iter < tr_iters:
+        clipping = cur_iter < tr_iters * 5
+        if clipping:
             orig_norm = torch.nn.utils.clip_grad_norm_(params, meta.grad_clip)
         else:
             orig_norm = meta.grad_clip
@@ -555,7 +585,9 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         
         if cur_iter < 10 or cur_iter % log_iters == 0 or (actual_lr < sche_lr - 1e-6 and random.randrange(8) == 0):
             g_tb_lg.add_scalar(f'{prefix}/orig_norm', orig_norm, cur_iter)
-            g_tb_lg.add_scalars(f'{prefix}/lr', {'scheduled': sche_lr, 'actual': actual_lr}, cur_iter)
+            g_tb_lg.add_scalars(f'{prefix}/lr', {'scheduled': sche_lr}, cur_iter)
+            if clipping:
+                g_tb_lg.add_scalars(f'{prefix}/lr', {'actual': actual_lr}, cur_iter)
         
         if cur_iter % log_iters == 0:
             # l_tb_lg.add_scalars(f'{prefix}/tr_loss', {'it': loss_avg.avg}, cur_iter)

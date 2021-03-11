@@ -7,8 +7,8 @@ python "${REL_PATH}monitor.py" "${EXP_DIR}" &
 PYTHONPATH=${PYTHONPATH}:${REL_PATH} \
 srun \
 --job-name "${DIR_NAME}" \
---mpi=pmi2 -p $1 -n4 --gres=gpu:4 \
---ntasks-per-node=4 \
+--mpi=pmi2 -p $1 -n16 --gres=gpu:8 \
+--ntasks-per-node=8 \
 --cpus-per-task=5 \
 python -u -m main_cifar \
 --main_py_rel_path="${REL_PATH}" \
@@ -23,7 +23,7 @@ python -u -m main_cifar \
 --dataset=cifar10 \
 --num_workers=4 \
 --pin_mem \
---swap_iters=16 \
+--adversarial \
 #--sbn \
 #--warmup
 #--nowd
