@@ -35,11 +35,11 @@ class InfiniteBatchSampler(Sampler):
             indices = torch.cat((indices, tails), dim=0)
             if self.shuffle:
                 if self.seed is None:
-                    indices = indices[torch.randperm(self.dataset_len)]
+                    indices = indices[torch.randperm(indices.shape[0])]
                 else:
                     g = torch.Generator()
                     g.manual_seed(self.seed * 1000 + self.epoch)
-                    indices = indices[torch.randperm(self.dataset_len, generator=g)]
+                    indices = indices[torch.randperm(indices.shape[0], generator=g)]
         
         # built-in list/tuple is faster than np.ndarray (when collating the data via a for-loop)
         # noinspection PyTypeChecker
@@ -62,7 +62,7 @@ class InfiniteBatchSampler(Sampler):
 
 
 if __name__ == '__main__':
-    sp = InfiniteBatchSampler(50000, 512, shuffle=False, drop_last=True, fill_last=False)
+    sp = InfiniteBatchSampler(50000, 512, shuffle=True, drop_last=False, fill_last=True, seed=0)
     n = 0
     it = iter(sp)
     for i in range(len(sp)):
