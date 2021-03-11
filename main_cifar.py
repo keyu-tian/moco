@@ -226,11 +226,11 @@ def main_process(args, dist: TorchDistManager):
     ])
     
     ds_root = args.ds_root or os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
-    ds_choice = torch.randperm(8)[0]
-    dist.broadcast(ds_choice, 0)
-    ds_choice = ds_choice.item()
-    ds_root += f'_{ds_choice}'
-    master_echo(dist.is_master(), f'[dataset] choice={ds_choice}')
+    # ds_choice = torch.randperm(8)[0]
+    # dist.broadcast(ds_choice, 0)
+    # ds_choice = ds_choice.item()
+    # ds_root += f'_{ds_choice}'
+    # master_echo(dist.is_master(), f'[dataset] choice={ds_choice}')
     
     assert not args.torch_ddp
     data_kw = dict(num_workers=args.num_workers, pin_memory=args.pin_mem)
