@@ -16,14 +16,14 @@ python -u -m main_cifar \
 --moco_m=0.99 \
 --moco_t=0.1 \
 --moco_symm \
---epochs=200 \
+--epochs=400 \
 --coslr \
 --eval_epochs=100 \
 --eval_coslr \
 --dataset=cifar10 \
 --num_workers=4 \
 --pin_mem \
---swap_iters=5 \
+--swap_epochs=5 \
 #--sbn \
 #--warmup
 #--nowd

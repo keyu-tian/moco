@@ -87,6 +87,7 @@ parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperatur
 # explore
 parser.add_argument('--swap_epochs', default=None, type=float)
 parser.add_argument('--swap_iters', default=None, type=int)
+parser.add_argument('--swap_inv', action='store_true')
 parser.add_argument('--adversarial', action='store_true')
 
 
@@ -307,8 +308,9 @@ def main_process(args, dist: TorchDistManager):
     ).cuda()
     
     if args.eval_resume_ckpt is None:
+        sw_kw = (args.swap_iters, swap_itrt, args.swap_inv) if args.swap_iters is not None else None
         pretrain_or_linear_eval(
-            (knn_iters, knn_itrt, args.knn_k, args.knn_t, knn_loader.dataset.targets), (args.swap_iters, swap_itrt), args.num_classes, ExpMeta(
+            (knn_iters, knn_itrt, args.knn_k, args.knn_t, knn_loader.dataset.targets), sw_kw, args.num_classes, ExpMeta(
                 args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.resume_ckpt,
                 args.epochs, args.lr, args.wd, args.nowd, args.coslr, args.schedule, args.warmup, args.grad_clip
             ),
@@ -364,7 +366,6 @@ def pretrain_or_linear_eval(
         tr_iters: int, tr_itrt: Iterator[DataLoader], te_iters: int, te_itrt: Iterator[DataLoader],
 
 ):
-    assert (pretrain_knn_args is None) == (swap_args is None)
     is_pretrain = pretrain_knn_args is not None
     assert is_pretrain == isinstance(model, ModelMoCo)
     prefix = 'pretrain' if is_pretrain else 'lnr_eval'
@@ -533,11 +534,12 @@ def pretrain_or_linear_eval(
 
 # pretrain for one epoch
 def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_iters, tr_itrt, model, params, op, avgs, swap_args=None):
-    if is_pretrain:
-        sw_freq, sw_itrt = swap_args
+    if is_pretrain and swap_args is not None:
+        sw_freq, sw_itrt, sw_inv = swap_args
+        sw_inv = int(sw_inv)
         model.train()
     else:
-        sw_freq, sw_itrt = None, None
+        sw_freq, sw_itrt, sw_inv = None, None, None
         model.eval()
     
     tr_loss_avg, tr_acc1_avg, tr_acc5_avg = avgs
@@ -554,7 +556,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         max_iter = meta.epochs * tr_iters
         
         if is_pretrain:
-            itrt = tr_itrt if (cur_iter // sw_freq & 1) == 0 else sw_itrt
+            itrt = tr_itrt if (cur_iter // sw_freq & 1) == sw_inv else sw_itrt
             # todo: if it is adv., plz change this: every iter should keep the same pace with each other, in other words, they should next(.) together
             data1, data2 = next(itrt)
         else:
