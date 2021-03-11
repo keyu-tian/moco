@@ -10,6 +10,20 @@ import numpy as np
 import torch
 
 
+def is_prime(x):
+    if x < 2:
+        return False
+    pl = [2, 3, 5, 7, 11, 13, 17, 19]
+    if x in pl:
+        return True
+    if any(x % p == 0 for p in pl):
+        return False
+    for i in range(23, math.ceil(2 + math.sqrt(x)), 2):
+        if x % i == 0:
+            return False
+    return True
+
+
 def master_echo(is_master, msg: str):
     if is_master:
         os.system(f'echo -e "\033[33m{msg}\033[0m"')

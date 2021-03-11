@@ -13,6 +13,7 @@ import colorama
 import torch
 import torch.nn.functional as F
 from PIL import Image
+from rsa.prime import is_prime
 from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -35,7 +36,7 @@ parser.add_argument('--exp_dirname', type=str, required=True)
 parser.add_argument('--resume_ckpt', default=None, type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
 parser.add_argument('--eval_resume_ckpt', default=None, type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
 parser.add_argument('--seed_base', default=None, type=int)
-parser.add_argument('--log_freq', default=3, type=int)
+parser.add_argument('--log_freq', default=4, type=int)
 
 # moco
 parser.add_argument('--arch', default='resnet18')
@@ -87,6 +88,8 @@ parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperatur
 parser.add_argument('--swap_epochs', default=None, type=float)
 parser.add_argument('--swap_iters', default=None, type=int)
 parser.add_argument('--adversarial', action='store_true')
+
+
 # todo: adversarial
 
 
@@ -197,7 +200,7 @@ def main_process(args, dist: TorchDistManager):
         Color(Color.RANGES[4]), Contrast(Contrast.RANGES[4]), Brightness(Brightness.RANGES[4]),
         Sharpness(Sharpness.RANGES[4]),
         AutoContrast(), Invert(),
-        
+    
     ]
     swap_transform = transforms.Compose([
         transforms.RandomResizedCrop(32),
@@ -261,7 +264,7 @@ def main_process(args, dist: TorchDistManager):
         **data_kw)
     eval_iters, eval_itrt = len(eval_loader), iter(eval_loader)
     lg.info(f'=> [main]: prepare eval_data (iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
-
+    
     if args.swap_epochs is not None:
         args.swap_iters = round(args.swap_epochs * swap_iters)
     lg.info(f'=> [main]: args:\n{pf(vars(args))}\n')
@@ -288,7 +291,7 @@ def main_process(args, dist: TorchDistManager):
         symmetric=args.moco_symm,
         init=args.init
     ).cuda()
-
+    
     lnr_eval_model = ModelMoCo(
         lg=lg,
         torch_ddp=args.torch_ddp,
@@ -351,7 +354,7 @@ class ExpMeta(NamedTuple):
     schedule: List[int]
     warmup: bool
     grad_clip: float
-    
+
 
 def pretrain_or_linear_eval(
         pretrain_knn_args, swap_args,
@@ -359,7 +362,7 @@ def pretrain_or_linear_eval(
         meta: ExpMeta, lg: Logger, g_tb_lg: SummaryWriter, l_tb_lg: SummaryWriter,
         dist: TorchDistManager, model: Union[ModelMoCo, torch.nn.Module],
         tr_iters: int, tr_itrt: Iterator[DataLoader], te_iters: int, te_itrt: Iterator[DataLoader],
-        
+
 ):
     assert (pretrain_knn_args is None) == (swap_args is None)
     is_pretrain = pretrain_knn_args is not None
@@ -539,6 +542,10 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
     
     tr_loss_avg, tr_acc1_avg, tr_acc5_avg = avgs
     log_iters = tr_iters // meta.log_freq
+    while log_iters > 1:
+        if is_prime(log_iters):
+            break
+        log_iters -= 1
     
     tot_loss, tot_num = 0.0, 0
     last_t = time.time()
@@ -606,7 +613,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
                 f'\n'
                 f'    ep[{ep_str}] it[{it + 1}/{tr_iters}]: L={tr_loss_avg.avg:.2g} {acc_str}\n'
                 f'     {prefix} da[{data_t - last_t:.3f}], cu[{cuda_t - data_t:.3f}], fo[{forw_t - cuda_t:.3f}], ba[{back_t - forw_t:.3f}], '
-                f'cl[{clip_t-back_t:.3f}], op[{step_t-clip_t:.3f}]'
+                f'cl[{clip_t - back_t:.3f}], op[{step_t - clip_t:.3f}]'
             )
         
         last_t = time.time()
