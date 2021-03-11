@@ -24,7 +24,7 @@ from model.moco import ModelMoCo
 from utils.data import InfiniteBatchSampler
 from utils.dist import TorchDistManager
 from utils.file import create_files
-from utils.misc import time_str, filter_params, set_seed, AverageMeter, TopKHeap, adjust_learning_rate, accuracy
+from utils.misc import time_str, filter_params, set_seed, AverageMeter, TopKHeap, adjust_learning_rate, accuracy, master_echo
 
 parser = argparse.ArgumentParser(description='Train MoCo on CIFAR-10')
 
@@ -207,7 +207,7 @@ def main_process(args, dist: TorchDistManager):
         transforms.ToTensor(),
         get_normalize(args.dataset)
     ])
-        
+    
     test_transform = transforms.Compose([
         transforms.ToTensor(),
         get_normalize(args.dataset)
@@ -265,6 +265,8 @@ def main_process(args, dist: TorchDistManager):
     if args.swap_epochs is not None:
         args.swap_iters = round(args.swap_epochs * swap_iters)
     lg.info(f'=> [main]: args:\n{pf(vars(args))}\n')
+    if args.swap_iters is not None:
+        master_echo(dist.is_master(), f'[explore]: args.swap_iters={args.swap_iters} ({args.swap_iters / swap_iters:.2g} epochs)')
     
     lg.info(
         f'=> [main]: create the moco model: (ddp={args.torch_ddp})\n'
@@ -431,7 +433,7 @@ def pretrain_or_linear_eval(
         if epoch % 5 == 0 and dist.is_master():
             em_t = time.time()
             torch.cuda.empty_cache()
-            os.system(f'echo -e "\033[36m @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s \033[0m"')
+            master_echo(dist.is_master(), f' @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s ')
         
         start_t = time.time()
         tr_loss = train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_iters, tr_itrt, model, params, optimizer, avgs, swap_args)
@@ -475,10 +477,12 @@ def pretrain_or_linear_eval(
         
         epoch_speed.update(time.time() - start_t)
         if epoch == epoch_start:
-            print(f'[rk{dist.rank:2d}] barrier test')
+            master_echo(True, f'[rk{dist.rank:2d}] barrier test')
             dist.barrier()
             if not is_pretrain:
                 sanity_check(model.state_dict(), initial_model_state)
+        if epoch % 5 == 0 or epoch == meta.epochs - 1:
+            master_echo(dist.is_master(), f'curr_best={best_test_acc1:5.2f}')
     
     topk_test_acc1 = sum(topk_acc1s) / len(topk_acc1s)
     dt = time.time() - loop_start_t

@@ -10,6 +10,11 @@ import numpy as np
 import torch
 
 
+def master_echo(is_master, msg: str):
+    if is_master:
+        os.system(f'echo -e "\033[33m{msg}\033[0m"')
+
+
 def time_str():
     return datetime.datetime.now().strftime('[%m-%d %H:%M:%S]')
 
