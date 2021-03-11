@@ -308,6 +308,8 @@ def main_process(args, dist: TorchDistManager):
     ).cuda()
     
     if args.eval_resume_ckpt is None:
+        if not dist.is_master():
+            l_tb_lg._verbose = False
         sw_kw = (args.swap_iters, swap_itrt, args.swap_inv) if args.swap_iters is not None else None
         pretrain_or_linear_eval(
             (knn_iters, knn_itrt, args.knn_k, args.knn_t, knn_loader.dataset.targets), sw_kw, args.num_classes, ExpMeta(
@@ -323,7 +325,8 @@ def main_process(args, dist: TorchDistManager):
                 del d[k]
         msg = lnr_eval_model.encoder_q.load_state_dict(d, strict=False)
         assert len(msg.unexpected_keys) == 0 and all(k.startswith('fc.') for k in msg.missing_keys)
-    
+
+    l_tb_lg._verbose = True
     pretrain_or_linear_eval(
         None, None, args.num_classes, ExpMeta(
             args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.eval_resume_ckpt,
