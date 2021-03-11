@@ -93,6 +93,7 @@ def main():
     with open(seatable_file, 'r') as fp:
         last_dd = json.load(fp)
     
+    first = True
     try:
         rid = None
         while True:
@@ -115,10 +116,11 @@ def main():
             if attempts == max_att:
                 raise json.decoder.JSONDecodeError
             
-            if dd == last_dd:
+            if not first and dd == last_dd:
                 # print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] same...')
                 continue
             
+            first = False
             last_dd = dd
             abs_path, kwargs = dd
             rid, created = create_or_upd_explore_table(base, abs_path, rid, tb=tb_ip_port, **kwargs)
