@@ -202,7 +202,7 @@ def main_process(args, dist: TorchDistManager):
     swap_transform = transforms.Compose([
         transforms.RandomResizedCrop(32),
         transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomApply([AutoContrast()], p=0.5),
+        transforms.RandomApply([AutoContrast()], p=0.8),
         transforms.RandomApply([Sharpness(Sharpness.RANGES[4])], p=0.5),
         transforms.ToTensor(),
         get_normalize(args.dataset)
