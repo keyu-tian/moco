@@ -20,8 +20,8 @@ if __name__ == '__main__':
         with open(path, 'w', encoding='utf-8') as fp:
             fp.write(
                 ctt.replace(
-                    'python ../../../monitor.py "$1"',
-                    'if  [ ! -n "$1" ]; then echo "dirname missing"; fi\npython ../../../monitor.py "$1"',
+                    'if  [ ! -n "$1" ]; then echo "dirname missing"',
+                    'if  [ ! -n "$1" ]; then echo "dirname missing" && exit ',
                 )
             )
     
