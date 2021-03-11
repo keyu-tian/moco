@@ -228,14 +228,14 @@ def main_process(args, dist: TorchDistManager):
     
     pret_data = CIFAR10Pair(root=ds_root, train=True, transform=pret_transform, download=False)
     pret_loader = DataLoader(
-        pret_data, batch_sampler=InfiniteBatchSampler(len(pret_data), args.batch_size, shuffle=True, drop_last=False, fill_last=True, seed=0),
+        pret_data, batch_sampler=InfiniteBatchSampler(len(pret_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),
         **data_kw)
     pret_iters, pret_itrt = len(pret_loader), iter(pret_loader)
     lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
     
     swap_data = CIFAR10Pair(root=ds_root, train=True, transform=swap_transform, download=False)
     swap_loader = DataLoader(
-        swap_data, batch_sampler=InfiniteBatchSampler(len(swap_data), args.batch_size, shuffle=True, drop_last=False, fill_last=True, seed=0),
+        swap_data, batch_sampler=InfiniteBatchSampler(len(swap_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),
         **data_kw)
     swap_iters, swap_itrt = len(swap_loader), iter(swap_loader)
     lg.info(f'=> [main]: prepare swap_data (iters={swap_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
@@ -257,7 +257,7 @@ def main_process(args, dist: TorchDistManager):
     
     eval_data = CIFAR10(root=ds_root, train=True, transform=eval_transform, download=False)
     eval_loader = DataLoader(
-        eval_data, batch_sampler=InfiniteBatchSampler(len(eval_data), args.batch_size, shuffle=True, drop_last=False, fill_last=True, seed=None),
+        eval_data, batch_sampler=InfiniteBatchSampler(len(eval_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=None),
         **data_kw)
     eval_iters, eval_itrt = len(eval_loader), iter(eval_loader)
     lg.info(f'=> [main]: prepare eval_data (iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
