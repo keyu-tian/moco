@@ -49,3 +49,15 @@ else
 fi
 
 
+
+# pretrain exp-2021-0312-030128-VI_SP_VA_1080TI:
+#  best     acc5s @ (max=0.000, mean=0.000, std=0.000) tensor([0., 0., 0., 0.]))
+#  mean-top acc1s @ (max=86.649, mean=86.312, std=0.232) tensor([86.2735, 86.1360, 86.1905, 86.6490]))
+#  best     acc1s @ (max=86.710, mean=86.385, std=0.222) tensor([86.3100, 86.2100, 86.3100, 86.7100]))
+
+
+# lnr_eval exp-2021-0312-030128-VI_SP_VA_1080TI:
+#  best     acc5s @ (max=99.500, mean=99.482, std=0.015) tensor([99.4700, 99.4700, 99.4900, 99.5000]))
+#  mean-top acc1s @ (max=87.926, mean=87.887, std=0.033) tensor([87.8780, 87.8980, 87.8480, 87.9260]))
+#  best     acc1s @ (max=87.940, mean=87.920, std=0.014) tensor([87.9100, 87.9200, 87.9100, 87.9400]))
+
