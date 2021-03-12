@@ -85,6 +85,7 @@ parser.add_argument('--knn_k', default=200, type=int, help='k in kNN monitor')
 parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperature in kNN monitor; could be different with moco-t')
 
 # explore
+parser.add_argument('--pret_verbose', action='store_true')
 parser.add_argument('--swap_epochs', default=None, type=float)
 parser.add_argument('--swap_iters', default=None, type=int)
 parser.add_argument('--swap_inv', action='store_true')
@@ -178,10 +179,38 @@ def main_process(args, dist: TorchDistManager):
         pr=0, rem=0, beg_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     )
     
+    assert args.dataset == 'cifar10'
+    
     def get_normalize(ds_name: str):
         return transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
     
-    assert args.dataset == 'cifar10'
+    def compose(*ts):
+        return transforms.Compose([transforms.RandomHorizontalFlip(p=0.5), *ts, get_normalize(args.dataset)])
+    
+    trans = []
+    for color_tr, name in [
+        (Color(Color.RANGES[6]), 'colors'),
+        (Contrast(Contrast.RANGES[5]), 'contra'),
+        (Brightness(Brightness.RANGES[3]), 'bright'),
+        (transforms.RandomApply([Equalize()], 0.5), 'equali'),
+        (transforms.Compose([transforms.RandomApply([AutoContrast()], 0.5), Sharpness(Sharpness.RANGES[7])]), 'atcshp'),
+        (transforms.ColorJitter(0.4, 0.4, 0.4, 0.1), 'coljit'),
+    ]:
+        tr = transforms.Compose([transforms.RandomApply([color_tr], p=0.8), transforms.RandomGrayscale(p=0.2)])
+        t = compose(
+            transforms.RandomCrop(32, padding=4, padding_mode='edge'),
+            tr,
+            transforms.ToTensor(),
+            RandomPerspective(RandomPerspective.RANGES[4]),
+        )
+        trans.append((t, f'{name}_per'))
+        t = compose(
+            transforms.RandomResizedCrop(32),
+            deepcopy(tr),
+            transforms.ToTensor(),
+        )
+        trans.append((t, f'{name}_rrc'))
+
     pret_transform = transforms.Compose([
         transforms.RandomResizedCrop(32),
         transforms.RandomHorizontalFlip(p=0.5),
@@ -190,23 +219,10 @@ def main_process(args, dist: TorchDistManager):
         transforms.ToTensor(),
         get_normalize(args.dataset)
     ])
-    
-    # todo: here
-    candidates_geo = [
-        ShearX(ShearX.RANGES[4]), ShearY(ShearY.RANGES[4]),
-        TranslateX(TranslateX.RANGES[4]), TranslateY(TranslateY.RANGES[4]),
-        Rotate(Rotate.RANGES[4]),
-    ]
-    candidates_col = [
-        Color(Color.RANGES[4]), Contrast(Contrast.RANGES[4]), Brightness(Brightness.RANGES[4]),
-        Sharpness(Sharpness.RANGES[4]),
-        AutoContrast(), Invert(),
-    
-    ]
     swap_transform = transforms.Compose([
         transforms.RandomResizedCrop(32),
         transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomApply([AutoContrast()], p=0.8),
+        transforms.RandomApply([AutoContrast()], p=0.5),
         transforms.RandomApply([Sharpness(Sharpness.RANGES[4])], p=0.5),
         transforms.ToTensor(),
         get_normalize(args.dataset)
@@ -242,7 +258,8 @@ def main_process(args, dist: TorchDistManager):
     pret_iters, pret_itrt = len(pret_loader), iter(pret_loader)
     lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {ds_root}')
     
-    swap_data = CIFAR10Pair(root=ds_root, train=True, transform=swap_transform, download=False)
+    # todo: transform=trans[dist.rank]改一下，不应该是这样的
+    swap_data = CIFAR10Pair(root=ds_root, train=True, transform=trans[dist.rank], download=False)
     swap_loader = DataLoader(
         swap_data, batch_sampler=InfiniteBatchSampler(len(swap_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),
         **data_kw)
@@ -313,7 +330,7 @@ def main_process(args, dist: TorchDistManager):
     ).cuda()
     
     if args.eval_resume_ckpt is None:
-        if not dist.is_master():
+        if not args.pret_verbose and not dist.is_master():
             l_tb_lg._verbose = False
         sw_kw = (args.swap_iters, swap_itrt, args.swap_inv) if args.swap_iters is not None else None
         pretrain_or_linear_eval(

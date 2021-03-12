@@ -45,10 +45,11 @@ def create_or_upd_explore_table(base, abs_path, rid=None, **kwargs):
     dd = dict(tags=tags, **kwargs)
     record_dt(dd)
     dd['abs_path'] = abs_path
-    dd['exp'] = '/'.join(abs_path.split('/')[-2:])
+    exp_root_dirname, datetime_dirname = abs_path.split('/')[-2:]
+    dd['exp'] = exp_root_dirname
 
     if rid is None:
-        q = base.filter(t_name, f"exp='{dd['exp']}'")
+        q = base.filter(t_name, f"abs_path='{dd['abs_path']}'")
         if q.exists():
             q.update(dd)
             return q.get()['_id'], False
