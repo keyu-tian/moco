@@ -632,9 +632,10 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         clipping = meta.grad_clip is not None and cur_iter < tr_iters * 8
         if clipping:
             orig_norm = torch.nn.utils.clip_grad_norm_(params, meta.grad_clip)
+            actual_lr = sche_lr * min(1, meta.grad_clip / orig_norm)
         else:
             orig_norm = meta.grad_clip
-        actual_lr = sche_lr * min(1, meta.grad_clip / orig_norm)
+            actual_lr = sche_lr
         clip_t = time.time()
         
         op.step()
