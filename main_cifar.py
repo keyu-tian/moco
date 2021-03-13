@@ -731,7 +731,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
             )
         
         if adversarial and cur_iter == 4 * ad_freq + 1:
-            master_echo(True, f'[rk{dist.rank:2d}] barrier test')
+            master_echo(True, f'[rk{dist.rank:2d}] adv barrier test')
             dist.barrier()
         
         last_t = time.time()
