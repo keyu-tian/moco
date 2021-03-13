@@ -90,10 +90,11 @@ parser.add_argument('--reset_op', action='store_true')
 
 
 class CIFAR10Pair(CIFAR10):
-    def __init__(self, root, train, transform, download):
+    def __init__(self, root, train, transform, download, final):
         super().__init__(root, train=train, transform=transform, download=download)
         self.cnt = 0
         self.flag = 0
+        self.final = final
 
     def __getitem__(self, index):
         self.cnt += 1
@@ -103,10 +104,9 @@ class CIFAR10Pair(CIFAR10):
         im_2 = self.transform(img)
         
         # todo: 观察到最后的数字后，假设最终是x，那先跑一个“cnt>x则assert False”发现不出错，再跑一个置flag=1（这样多进程的其他进程不会置1）and cnt==x则assert False发现assert了（说明多进程的其他进程真的也刚好访问了x次！）
-        final = 2
-        if self.cnt > final:
+        if self.cnt > self.final:
             raise IndexError
-        # if self.flag == 0 and self.cnt == final:
+        # if self.flag == 0 and self.cnt == self.final:
         #     raise AttributeError
         
         return im_1, im_2
@@ -272,10 +272,13 @@ def main_process(args, dist: TorchDistManager):
     assert not args.torch_ddp
     data_kw = dict(num_workers=args.num_workers, pin_memory=args.pin_mem)
     
+    assert args.batch_size % args.num_workers == 0
+    final_accessing_times = args.epochs * 50000 // args.batch_size * args.batch_size // args.num_workers
+    
     for rk in range(dist.world_size):
         if rk == dist.rank:
             master_echo(True, f'{time_str()}[rk{dist.rank:2d}] construct dataloaders...', tail='\\c')
-            pret_data = CIFAR10Pair(root=ds_root, train=True, transform=pret_transform, download=False)
+            pret_data = CIFAR10Pair(root=ds_root, train=True, transform=pret_transform, download=False, final=final_accessing_times)
             pret_loader = DataLoader(
                 pret_data, batch_sampler=InfiniteBatchSampler(len(pret_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),
                 **data_kw)
@@ -285,7 +288,7 @@ def main_process(args, dist: TorchDistManager):
             if args.adversarial:
                 swap_itrt = []
                 for t, name in trans:
-                    ds = CIFAR10Pair(root=ds_root, train=True, transform=t, download=False)
+                    ds = CIFAR10Pair(root=ds_root, train=True, transform=t, download=False, final=None)
                     ld = DataLoader(
                         ds, batch_sampler=InfiniteBatchSampler(len(ds), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),        # todo: 本来这里不应该drop last的，因为要用整50000张衡量才公平，但是考虑到代码方便（因为train函数里的itrt可能是train也可能是sw，他们应该是一样的都drop_last）
                         **data_kw)
@@ -293,7 +296,7 @@ def main_process(args, dist: TorchDistManager):
                     swap_itrt.append((iter(ld), name))
                 swap_itrt = (tuple(swap_itrt), [0] * dist.world_size)
             else:
-                swap_data = CIFAR10Pair(root=ds_root, train=True, transform=swap_transform, download=False)
+                swap_data = CIFAR10Pair(root=ds_root, train=True, transform=swap_transform, download=False, final=None)
                 swap_loader = DataLoader(
                     swap_data, batch_sampler=InfiniteBatchSampler(len(swap_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),
                     **data_kw)
