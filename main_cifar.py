@@ -610,6 +610,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
             itrt = tr_itrt if (cur_iter // sw_freq & 1) == sw_inv else sw_itrt
             if reset_op and cur_iter > 1 and (((cur_iter-1) // sw_freq & 1) != (cur_iter // sw_freq & 1)):
                 op.load_state_dict(initial_op_state)
+                master_echo(dist.is_master(), f'reset op, cur_iter={cur_iter} ({round((cur_iter+1) // tr_iters, 2)} ep)')
             # todo: if it is adv., plz change this: every iter should keep the same pace with each other, in other words, they should next(.) together
             # todo: 不必要，如果是开eval模式并且不改queue buffer，然后衡量整个dataest的loss，就和顺序无关了，只要遍历完dataset就行了（但这样需要一个不drop也不fill last的dataloader）
             # todo: 记得每次选完之后（每5epoch选1个），log出每个trans累计被选中的次数之和
