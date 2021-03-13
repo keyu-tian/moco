@@ -291,10 +291,8 @@ def main_process(args, dist: TorchDistManager):
             swap_iters, swap_adv_itrt = len(swap_loader), iter(swap_loader)
             lg.info(f'=> [main]: prepare swap/adv_data (iters={swap_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
             assert swap_iters == pret_iters
-            swap_args = (args.swap_iters, swap_adv_itrt, args.swap_inv, args.reset_op) if args.swapping else None
             
             if args.adversarial:
-                swap_transform = trans[dist.rank][0]
                 bs = args.batch_size
                 
                 def get_adv_itrt(tr, seed):
@@ -347,7 +345,7 @@ def main_process(args, dist: TorchDistManager):
                 master_echo(dist.is_master(), f'[explore.adv]: args.adv_iters={args.adv_iters} ({args.adv_iters / pret_iters:.2g} epochs)')
             
             swap_args = (args.swap_iters, swap_adv_itrt, args.swap_inv, args.reset_op) if args.swapping else None
-            adv_args = (args.adv_iters, rand_itrt, swap_adv_itrt, get_adv_itrt, trans, {tu[1]: 0 for tu in trans}, args.reset_op) if args.adversarial else None
+            adv_args = (args.adv_iters, rand_itrt, swap_adv_itrt, get_adv_itrt, trans, {tu[1]: 0 for tu in trans}, args.reset_op, [None]) if args.adversarial else None
             lg.info(f'=> [main]: args:\n{pf(vars(args))}\n')
             
         dist.barrier()
@@ -629,7 +627,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
             sw_freq, sw_itrt, sw_inv, reset_op = swap_args
             sw_inv = int(sw_inv)
         if adversarial:
-            ad_freq, rand_itrt, candidate_itrt, get_adv_itrt, trans, counts, reset_op = adv_args
+            ad_freq, rand_itrt, candidate_itrt, get_adv_itrt, trans, counts, reset_op, last_itrt_ls = adv_args
         model.train()
     else:
         model.eval()
@@ -643,7 +641,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
     
     tot_loss, tot_num = 0.0, 0
     last_t = time.time()
-    last_itrt = None
+    
     for it in range(tr_iters):
         cur_iter = it + epoch * tr_iters
         max_iter = meta.epochs * tr_iters
@@ -654,24 +652,22 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
                 if reset_op and cur_iter > 1 and (((cur_iter - 1) // sw_freq & 1) != (cur_iter // sw_freq & 1)):
                     op.load_state_dict(initial_op_state)
             elif adversarial:
-                # todo: 4 *
-                if cur_iter < 1 * ad_freq:
+                if cur_iter < 4 * ad_freq:
                     itrt = rand_itrt
                 elif cur_iter % ad_freq == 0:
                     idx = select_itrts(dist, model, tr_iters, candidate_itrt)
                     tr, name = trans[idx]
-                    itrt = get_adv_itrt(tr, cur_iter)
+                    last_itrt_ls[0] = itrt = get_adv_itrt(tr, cur_iter)
                     lg.info(f'[adver.] transform={name}')
                     master_echo(dist.is_master(), f'[adver.] transform={name}')
                     
                     counts[name] += 1
                     g_tb_lg.add_scalars(f'{prefix}/adv_trans', counts, round(cur_iter / tr_iters))
                     
-                    last_itrt = itrt
                     if reset_op:
                         op.load_state_dict(initial_op_state)
                 else:
-                    itrt = last_itrt
+                    itrt = last_itrt_ls[0]
             else:   # normal training
                 itrt = tr_itrt
             data1, data2 = next(itrt)
@@ -845,33 +841,33 @@ def sanity_check(current_state, initial_state):
 
 
 def select_itrts(dist: TorchDistManager, model: ModelMoCo, tr_iters: int, candidate_itrt: Iterator[DataLoader]):
-    master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] begin')
+    # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] begin')
 
-    x = torch.tensor([dist.rank], dtype=torch.float)
-    dist.allreduce(x)
-    master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] x={x[0].item()}')
+    # x = torch.tensor([dist.rank], dtype=torch.float)
+    # dist.allreduce(x)
+    # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] x={x[0].item()}')
 
-    y = torch.tensor([dist.rank], dtype=torch.float)
-    dist.broadcast(y, dist.world_size - 1)
-    master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] y={y[0].item()}')
+    # y = torch.tensor([dist.rank], dtype=torch.float)
+    # dist.broadcast(y, dist.world_size - 1)
+    # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] y={y[0].item()}')
     
     for _, param in model.state_dict().items():
         dist.broadcast(param.data, 0)
-    master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] broadcast')
+    # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] broadcast')
     
     model.eval()
     with torch.no_grad():
         tot_loss, tot_num = 0., 0
         for it in range(tr_iters):
-            if it == 0:
-                master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] iter 0')
+            # if it == 0:
+            #     master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] iter 0')
             data1, data2 = next(candidate_itrt)
             bs = data1.shape[0]
             tot_loss += model(data1.cuda(non_blocking=True), data2.cuda(non_blocking=True), training=False).item() * bs
-        master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] dist')
+        # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] dist')
         idx = dist.dist_fmt_vals(tot_loss / 50000, None).argmax().item()
     model.train()
-    master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] end')
+    # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] end')
     return idx
 
 

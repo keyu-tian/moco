@@ -130,7 +130,7 @@ class TorchDistManager:
             proc_id = int(os.environ['SLURM_PROCID'])   # world rank
             # node_list = os.environ['SLURM_NODELIST']
             gres_gpu = torch.cuda.device_count()    # equals to `gres_gpu` in srun cmd
-            device: int = proc_id % gres_gpu        # equals to int(os.environ['SLURM_LOCALID'])
+            device: int = proc_id % gres_gpu        # equals to int(os.environ['SLURM_LOCALID']) # todo
             
             link.initialize()
             world_size = link.get_world_size()
@@ -141,8 +141,9 @@ class TorchDistManager:
             # link.barrier()
             # link.synchronize()
             
-            # torch.cuda.set_device(proc_id % gres_gpu) # todo
-            torch.cuda.set_device(int(os.environ['SLURM_LOCALID'])) # todo
+            # torch.cuda.set_device(proc_id % gres_gpu)
+            device = int(os.environ['SLURM_LOCALID'])   # todo
+            torch.cuda.set_device(device)
             
         else:   # just for local debugging
             world_size, rank, device = 1, 0, 0
