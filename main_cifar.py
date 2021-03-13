@@ -309,10 +309,6 @@ def main_process(args, dist: TorchDistManager):
                 lg.info(f'=> [main]: prepare rand_data (iters={rand_iters}, ddp={args.torch_ddp}): @ {ds_root}')
                 assert rand_iters == pret_iters
 
-                adv_args = (args.adv_iters, rand_itrt, swap_adv_itrt, get_adv_itrt, trans, {tu[1]: 0 for tu in trans}, args.reset_op)
-            else:
-                adv_args = None
-                
             knn_data = CIFAR10(root=ds_root, train=True, transform=test_transform, download=False)
             knn_loader = DataLoader(
                 knn_data, batch_sampler=InfiniteBatchSampler(len(knn_data), args.batch_size * 2, shuffle=False, drop_last=False, fill_last=False),
@@ -346,7 +342,10 @@ def main_process(args, dist: TorchDistManager):
             if args.adv_iters is not None:
                 master_echo(dist.is_master(), f'[explore.adv]: args.adv_iters={args.adv_iters} ({args.adv_iters / pret_iters:.2g} epochs)')
             
+            swap_args = (args.swap_iters, swap_adv_itrt, args.swap_inv, args.reset_op) if args.swapping else None
+            adv_args = (args.adv_iters, rand_itrt, swap_adv_itrt, get_adv_itrt, trans, {tu[1]: 0 for tu in trans}, args.reset_op) if args.adversarial else None
             lg.info(f'=> [main]: args:\n{pf(vars(args))}\n')
+            
         dist.barrier()
     
     lg.info(
