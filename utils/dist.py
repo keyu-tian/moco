@@ -15,7 +15,7 @@ from utils.misc import time_str
 class TorchDistManager:
     WORLD_GROUP = dist.group.WORLD if torch.cuda.is_available() else None
     
-    def __init__(self, node0_addr: Union[int, str], node0_port: Union[int, str], mp_start_method: str = 'fork', backend: str = 'nccl', exp_dirname: str = ''):
+    def __init__(self, exp_dirname: str, node0_addr: Union[int, str], node0_port: Union[int, str], mp_start_method: str = 'fork', backend: str = 'nccl'):
         set_start_method(mp_start_method, force=True)
         self.backend = backend
         # if multi_nodes:   # if $2 > ntasks-per-node
