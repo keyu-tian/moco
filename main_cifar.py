@@ -105,7 +105,7 @@ class CIFAR10Pair(CIFAR10):
         
         # todo: 观察到最后的数字后，假设最终是x，那先跑一个“cnt>x则assert False”发现不出错，再跑一个置flag=1（这样多进程的其他进程不会置1）and cnt==x则assert False发现assert了（说明多进程的其他进程真的也刚好访问了x次！）
         if self.cnt > self.final:
-            raise IndexError
+            print(self.cnt)
         # if self.flag == 0 and self.cnt == self.final:
         #     raise AttributeError
         
