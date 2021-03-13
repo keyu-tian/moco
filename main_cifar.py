@@ -263,48 +263,53 @@ def main_process(args, dist: TorchDistManager):
     assert not args.torch_ddp
     data_kw = dict(num_workers=args.num_workers, pin_memory=args.pin_mem)
     
-    pret_data = CIFAR10Pair(root=ds_root, train=True, transform=pret_transform, download=False)
-    pret_loader = DataLoader(
-        pret_data, batch_sampler=InfiniteBatchSampler(len(pret_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),
-        **data_kw)
-    pret_iters, pret_itrt = len(pret_loader), iter(pret_loader)
-    lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {ds_root}')
-    
-    # todo: transform=trans[dist.rank]改一下，不应该是这样的
-    swap_data = CIFAR10Pair(root=ds_root, train=True, transform=trans[dist.rank][0], download=False)
-    swap_loader = DataLoader(
-        swap_data, batch_sampler=InfiniteBatchSampler(len(swap_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),
-        **data_kw)
-    swap_iters, swap_itrt = len(swap_loader), iter(swap_loader)
-    lg.info(f'=> [main]: prepare swap_data (iters={swap_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
-    assert swap_iters == pret_iters
-    
-    knn_data = CIFAR10(root=ds_root, train=True, transform=test_transform, download=False)
-    knn_loader = DataLoader(
-        knn_data, batch_sampler=InfiniteBatchSampler(len(knn_data), args.batch_size * 2, shuffle=False, drop_last=False, fill_last=False),
-        **data_kw)
-    knn_iters, knn_itrt = len(knn_loader), iter(knn_loader)
-    lg.info(f'=> [main]: prepare knn_data  (iters={knn_iters }, ddp={args.torch_ddp}): @ {args.dataset}')
-    
-    test_data = CIFAR10(root=ds_root, train=False, transform=test_transform, download=False)
-    test_loader = DataLoader(
-        test_data, batch_sampler=InfiniteBatchSampler(len(test_data), args.batch_size * 2, shuffle=False, drop_last=False, fill_last=False),
-        **data_kw)
-    test_iters, test_itrt = len(test_loader), iter(test_loader)
-    lg.info(f'=> [main]: prepare test_data (iters={test_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
-    
-    eval_data = CIFAR10(root=ds_root, train=True, transform=eval_transform, download=False)
-    eval_loader = DataLoader(
-        eval_data, batch_sampler=InfiniteBatchSampler(len(eval_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=None),
-        **data_kw)
-    eval_iters, eval_itrt = len(eval_loader), iter(eval_loader)
-    lg.info(f'=> [main]: prepare eval_data (iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
-    
-    if args.swap_epochs is not None:
-        args.swap_iters = round(args.swap_epochs * swap_iters)
-    lg.info(f'=> [main]: args:\n{pf(vars(args))}\n')
-    if args.swap_iters is not None:
-        master_echo(dist.is_master(), f'[explore]: args.swap_iters={args.swap_iters} ({args.swap_iters / swap_iters:.2g} epochs)')
+    for rk in range(dist.world_size):
+        if rk == dist.rank:
+            master_echo(True, f'[rk{dist.rank:2d}] construct dataloaders...', tail='\\c')
+            pret_data = CIFAR10Pair(root=ds_root, train=True, transform=pret_transform, download=False)
+            pret_loader = DataLoader(
+                pret_data, batch_sampler=InfiniteBatchSampler(len(pret_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),
+                **data_kw)
+            pret_iters, pret_itrt = len(pret_loader), iter(pret_loader)
+            lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {ds_root}')
+            
+            # todo: transform=trans[dist.rank]改一下，不应该是这样的
+            swap_data = CIFAR10Pair(root=ds_root, train=True, transform=trans[dist.rank][0], download=False)
+            swap_loader = DataLoader(
+                swap_data, batch_sampler=InfiniteBatchSampler(len(swap_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),
+                **data_kw)
+            swap_iters, swap_itrt = len(swap_loader), iter(swap_loader)
+            lg.info(f'=> [main]: prepare swap_data (iters={swap_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
+            assert swap_iters == pret_iters
+            
+            knn_data = CIFAR10(root=ds_root, train=True, transform=test_transform, download=False)
+            knn_loader = DataLoader(
+                knn_data, batch_sampler=InfiniteBatchSampler(len(knn_data), args.batch_size * 2, shuffle=False, drop_last=False, fill_last=False),
+                **data_kw)
+            knn_iters, knn_itrt = len(knn_loader), iter(knn_loader)
+            lg.info(f'=> [main]: prepare knn_data  (iters={knn_iters }, ddp={args.torch_ddp}): @ {args.dataset}')
+            
+            test_data = CIFAR10(root=ds_root, train=False, transform=test_transform, download=False)
+            test_loader = DataLoader(
+                test_data, batch_sampler=InfiniteBatchSampler(len(test_data), args.batch_size * 2, shuffle=False, drop_last=False, fill_last=False),
+                **data_kw)
+            test_iters, test_itrt = len(test_loader), iter(test_loader)
+            lg.info(f'=> [main]: prepare test_data (iters={test_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
+            
+            eval_data = CIFAR10(root=ds_root, train=True, transform=eval_transform, download=False)
+            eval_loader = DataLoader(
+                eval_data, batch_sampler=InfiniteBatchSampler(len(eval_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=None),
+                **data_kw)
+            eval_iters, eval_itrt = len(eval_loader), iter(eval_loader)
+            lg.info(f'=> [main]: prepare eval_data (iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
+            
+            if args.swap_epochs is not None:
+                args.swap_iters = round(args.swap_epochs * swap_iters)
+            lg.info(f'=> [main]: args:\n{pf(vars(args))}\n')
+            if args.swap_iters is not None:
+                master_echo(dist.is_master(), f'[explore]: args.swap_iters={args.swap_iters} ({args.swap_iters / swap_iters:.2g} epochs)')
+            master_echo(True, f'    finished!', '37', tail='\\c')
+        dist.barrier()
     
     lg.info(
         f'=> [main]: create the moco model: (ddp={args.torch_ddp})\n'

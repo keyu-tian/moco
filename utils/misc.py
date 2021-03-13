@@ -24,9 +24,9 @@ def is_prime(x):
     return True
 
 
-def master_echo(is_master, msg: str):
+def master_echo(is_master, msg: str, color='33', tail=''):
     if is_master:
-        os.system(f'echo -e "\033[33m{msg}\033[0m"')
+        os.system(f'echo -e "\033[{color}m{msg}\033[0m{tail}"')
 
 
 def time_str():
