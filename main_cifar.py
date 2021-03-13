@@ -330,7 +330,7 @@ def main_process(args, dist: TorchDistManager):
             eval_iters, eval_itrt = len(eval_loader), iter(eval_loader)
             lg.info(f'=> [main]: prepare eval_data (iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
             
-            master_echo(True, f'    finished!', '37', tail='')
+            master_echo(True, f'    finished!', '36', tail='')
 
             if args.swap_epochs is not None:
                 args.swap_iters = round(args.swap_epochs * swap_iters)
@@ -522,7 +522,7 @@ def pretrain_or_linear_eval(
         if epoch % 5 == 0 and dist.is_master():
             em_t = time.time()
             torch.cuda.empty_cache()
-            master_echo(dist.is_master(), f' @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s ')
+            master_echo(dist.is_master(), f' @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s ', '36')
         
         start_t = time.time()
         tr_loss = train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_iters, tr_itrt, model, params, optimizer, initial_op_state, avgs, swap_args, adv_args)
@@ -650,9 +650,9 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
                 if reset_op and cur_iter > 1 and (((cur_iter - 1) // sw_freq & 1) != (cur_iter // sw_freq & 1)):
                     op.load_state_dict(initial_op_state)
             elif adversarial:
-                if cur_iter < 4 * ad_freq:
+                if cur_iter < 1 * ad_freq:
                     itrt = rand_itrt
-                elif cur_iter % sw_freq == 0:
+                elif cur_iter % ad_freq == 0:
                     idx = select_itrts(dist, model, tr_iters, candidate_itrt)
                     tr, name = trans[idx]
                     itrt = get_adv_itrt(tr, cur_iter)
@@ -742,7 +742,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
 # test using a knn monitor
 def knn_test(lg, l_tb_lg, dist, log_freq, epoch, ep_str, te_iters, te_itrt, moco_encoder_q, knn_args, num_classes):
     knn_iters, knn_itrt, knn_k, knn_t, targets = knn_args
-    log_iters = te_iters // log_freq
+    # log_iters = te_iters // log_freq
     
     moco_encoder_q.eval()
     total_top1, total_top5, total_num, feature_bank = 0.0, 0.0, 0, []
@@ -759,18 +759,18 @@ def knn_test(lg, l_tb_lg, dist, log_freq, epoch, ep_str, te_iters, te_itrt, moco
         feature_labels = torch.tensor(targets, device=feature_bank.device)
         
         # loop test data to predict the label by weighted knn search
-        last_t = time.time()
+        # last_t = time.time()
         for it in range(te_iters):
             inp, tar = next(te_itrt)
-            data_t = time.time()
+            # data_t = time.time()
             inp, tar = inp.cuda(non_blocking=True), tar.cuda(non_blocking=True)
-            cuda_t = time.time()
+            # cuda_t = time.time()
             feature = moco_encoder_q(inp)
             feature = F.normalize(feature, dim=1)
-            fea_t = time.time()
+            # fea_t = time.time()
             
             pred_labels = knn_predict(feature, feature_bank, feature_labels, num_classes, knn_k, knn_t)
-            pred_t = time.time()
+            # pred_t = time.time()
             
             total_num += inp.shape[0]
             total_top1 += (pred_labels[:, 0] == tar).float().sum().item()
@@ -782,7 +782,7 @@ def knn_test(lg, l_tb_lg, dist, log_freq, epoch, ep_str, te_iters, te_itrt, moco
             #         f'       da[{data_t - last_t:.3f}], cu[{cuda_t - data_t:.3f}], fe[{fea_t - cuda_t:.3f}], kn[{pred_t - fea_t:.3f}]'
             #     )
             
-            last_t = time.time()
+            # last_t = time.time()
     
     return total_top1 / total_num * 100
 
