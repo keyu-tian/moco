@@ -308,7 +308,7 @@ def main_process(args, dist: TorchDistManager):
             lg.info(f'=> [main]: args:\n{pf(vars(args))}\n')
             if args.swap_iters is not None:
                 master_echo(dist.is_master(), f'[explore]: args.swap_iters={args.swap_iters} ({args.swap_iters / swap_iters:.2g} epochs)')
-            master_echo(True, f'    finished!', '37', tail='\\c')
+            master_echo(True, f'    finished!', '37', tail='')
         dist.barrier()
     
     lg.info(
