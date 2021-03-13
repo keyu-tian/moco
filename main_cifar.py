@@ -211,10 +211,10 @@ def main_process(args, dist: TorchDistManager):
     ]:
         tr = transforms.Compose([transforms.RandomApply([color_tr], p=0.8), transforms.RandomGrayscale(p=0.2)])
         t = compose(
-            transforms.RandomCrop(32, padding=4, padding_mode='edge'),
+            transforms.RandomCrop(32, padding=6, padding_mode='edge'),
             tr,
             transforms.ToTensor(),
-            RandomPerspective(RandomPerspective.RANGES[5]),
+            RandomPerspective(RandomPerspective.RANGES[4]),
         )
         trans.append((t, f'{name}_per'))
         t = compose(
