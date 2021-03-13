@@ -187,9 +187,21 @@ def main_process(args, dist: TorchDistManager):
     def compose(*ts):
         return transforms.Compose([transforms.RandomHorizontalFlip(p=0.5), *ts, get_normalize(args.dataset)])
     
+    #  0 : colors_Per 太弱
+    #  1 : colors_RRC 稍弱
+    #  2 : contra_Per 太弱
+    #  3 : contra_RRC 一般
+    #  4 : bright_Per 太弱
+    #  5 : bright_RRC 一般
+    #  6 : equali_Per 稍弱
+    #  7 : equali_RRC 强
+    #  8 : atcshp_Per 太弱
+    #  9 : atcshp_RRC 一般
+    # 10 : coljit_Per 太弱
+    # 11 : coljit_RRC baseline
     trans = []
     for color_tr, name in [
-        (Color(Color.RANGES[6]), 'colors'),
+        (Color(Color.RANGES[7]), 'colors'),
         (Contrast(Contrast.RANGES[5]), 'contra'),
         (Brightness(Brightness.RANGES[3]), 'bright'),
         (transforms.RandomApply([Equalize()], 0.5), 'equali'),
@@ -201,7 +213,7 @@ def main_process(args, dist: TorchDistManager):
             transforms.RandomCrop(32, padding=4, padding_mode='edge'),
             tr,
             transforms.ToTensor(),
-            RandomPerspective(RandomPerspective.RANGES[4]),
+            RandomPerspective(RandomPerspective.RANGES[5]),
         )
         trans.append((t, f'{name}_per'))
         t = compose(
@@ -583,6 +595,8 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         if is_pretrain:
             itrt = tr_itrt if (cur_iter // sw_freq & 1) == sw_inv else sw_itrt
             # todo: if it is adv., plz change this: every iter should keep the same pace with each other, in other words, they should next(.) together
+            # todo: 不必要，如果是开eval模式并且不改queue buffer，然后衡量整个dataest的loss，就和顺序无关了，只要遍历完dataset就行了（但这样需要一个不drop也不fill last的dataloader）
+            # todo: 记得每次选完之后（每5epoch选1个），log出每个trans累计被选中的次数之和
             data1, data2 = next(itrt)
         else:
             data1, data2 = next(tr_itrt)
@@ -603,7 +617,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         l = loss.item()
         tr_loss_avg.update(l, bs)
         tot_num += bs
-        tot_loss += l
+        tot_loss += l * bs
         forw_t = time.time()
         
         op.zero_grad()
