@@ -9,6 +9,7 @@ from pprint import pformat as pf
 from typing import NamedTuple, Optional, List, Union, Iterator, Tuple
 
 import colorama
+import torch
 from rsa.prime import is_prime
 from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
@@ -842,6 +843,12 @@ def sanity_check(current_state, initial_state):
 
 def select_itrts(dist: TorchDistManager, model: ModelMoCo, tr_iters: int, candidate_itrt: Iterator[DataLoader]):
     master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] begin')
+    
+    x = torch.tensor([dist.rank], dtype=torch.float)
+    dist.broadcast(x, 0)
+    master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] x={x[0].item()}')
+    
+    
     for _, param in model.state_dict().items():
         dist.broadcast(param.data, 0)
     master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] broadcast')
