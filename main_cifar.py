@@ -645,10 +645,12 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
                         op.load_state_dict(initial_op_state)
                 else:
                     itrt = last_itrt
-            else:
+            elif swap_args is not None:
                 itrt = tr_itrt if (cur_iter // sw_freq & 1) == sw_inv else sw_itrt
                 if reset_op and cur_iter > 1 and (((cur_iter - 1) // sw_freq & 1) != (cur_iter // sw_freq & 1)):
                     op.load_state_dict(initial_op_state)
+            else:
+                itrt = tr_itrt
                     # master_echo(dist.is_master(), f'reset op, cur_iter={cur_iter} ({round((cur_iter+1) // tr_iters, 2)} ep)')
             data1, data2 = next(itrt)
         else:
