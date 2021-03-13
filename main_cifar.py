@@ -650,6 +650,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
                 if reset_op and cur_iter > 1 and (((cur_iter - 1) // sw_freq & 1) != (cur_iter // sw_freq & 1)):
                     op.load_state_dict(initial_op_state)
             elif adversarial:
+                # todo: 4 *
                 if cur_iter < 1 * ad_freq:
                     itrt = rand_itrt
                 elif cur_iter % ad_freq == 0:
@@ -840,6 +841,7 @@ def sanity_check(current_state, initial_state):
 
 
 def select_itrts(dist: TorchDistManager, model: ModelMoCo, tr_iters: int, candidate_itrt: Iterator[DataLoader]):
+    master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] before the selection')
     for _, param in model.state_dict().items():
         dist.broadcast(param.data, 0)
         
@@ -852,6 +854,7 @@ def select_itrts(dist: TorchDistManager, model: ModelMoCo, tr_iters: int, candid
             tot_loss += model(data1.cuda(non_blocking=True), data2.cuda(non_blocking=True), training=False).item() * bs
         idx = dist.dist_fmt_vals(tot_loss / 50000, None).argmax().item()
     model.train()
+    master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] after the selection')
     return idx
 
 
