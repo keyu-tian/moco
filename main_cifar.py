@@ -630,7 +630,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         max_iter = meta.epochs * tr_iters
         
         if is_pretrain:
-            if adversarial:
+            if adversarial:             # adversarial
                 if cur_iter < 4 * sw_freq:
                     itrt, name = random.choice(sw_itrt)
                 elif cur_iter % sw_freq == 0:
@@ -645,11 +645,11 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
                         op.load_state_dict(initial_op_state)
                 else:
                     itrt = last_itrt
-            elif swap_args is not None:
+            elif swap_args is not None: # swapping
                 itrt = tr_itrt if (cur_iter // sw_freq & 1) == sw_inv else sw_itrt
                 if reset_op and cur_iter > 1 and (((cur_iter - 1) // sw_freq & 1) != (cur_iter // sw_freq & 1)):
                     op.load_state_dict(initial_op_state)
-            else:
+            else:                       # normal training
                 itrt = tr_itrt
             data1, data2 = next(itrt)
         else:
