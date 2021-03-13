@@ -286,7 +286,6 @@ def main_process(args, dist: TorchDistManager):
                     **data_kw)
                 swap_iters, swap_itrt = len(swap_loader), iter(swap_loader)
             lg.info(f'=> [main]: prepare swap_data (iters={swap_iters}, ddp={args.torch_ddp}, adv={args.adversarial}): @ {args.dataset}')
-            assert swap_iters == pret_iters
             
             knn_data = CIFAR10(root=ds_root, train=True, transform=test_transform, download=False)
             knn_loader = DataLoader(
@@ -808,6 +807,9 @@ def sanity_check(current_state, initial_state):
 
 
 def select_itrts(dist: TorchDistManager, model: ModelMoCo, train_iters: int, itrts: Tuple[Tuple[DataLoader, str]]):
+    for _, param in model.state_dict().items():
+        dist.broadcast(param.data, 0)
+        
     model.eval()
     with torch.no_grad():
         itrt, _ = itrts[dist.rank]
