@@ -213,7 +213,7 @@ def main_process(args, dist: TorchDistManager):
             transforms.RandomCrop(32, padding=4, padding_mode='edge'),
             tr,
             transforms.ToTensor(),
-            RandomPerspective(RandomPerspective.RANGES[5]),
+            RandomPerspective(RandomPerspective.RANGES[4]),
         )
         trans.append((t, f'{name}_per'))
         t = compose(
