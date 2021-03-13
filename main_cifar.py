@@ -202,7 +202,7 @@ def main_process(args, dist: TorchDistManager):
     # 11 : coljit_RRC baseline
     trans = []
     for color_tr, name in [
-        (Color(Color.RANGES[7]), 'colors'),
+        (Color(Color.RANGES[8]), 'colors'),
         (Contrast(Contrast.RANGES[5]), 'contra'),
         (Brightness(Brightness.RANGES[3]), 'bright'),
         (transforms.RandomApply([transforms.RandomChoice([Equalize(), AutoContrast()])], 2/3), 'equatc'),
@@ -214,7 +214,7 @@ def main_process(args, dist: TorchDistManager):
             transforms.RandomCrop(32, padding=6, padding_mode='edge'),
             tr,
             transforms.ToTensor(),
-            RandomPerspective(RandomPerspective.RANGES[4]),
+            RandomPerspective(RandomPerspective.RANGES[5]),
         )
         trans.append((t, f'{name}_per'))
         t = compose(
