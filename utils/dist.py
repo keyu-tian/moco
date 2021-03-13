@@ -23,7 +23,7 @@ class TorchDistManager:
         world_size: int = int(os.environ['SLURM_NTASKS'])
         rank: int = int(os.environ['SLURM_PROCID'])
         
-        temp_f_path = os.path.join(os.getcwd(), f'.temp_{exp_dirname}_{os.environ["SLURM_NODELIST"]}.json')
+        temp_f_path = os.path.join(os.getcwd(), f'.temp_{os.environ["SLURM_NODELIST"]}_{exp_dirname}.json')
         self.temp_f_path = temp_f_path
         if rank == 0:
             node0_addr = str(node0_addr).lower()
