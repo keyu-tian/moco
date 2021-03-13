@@ -478,7 +478,7 @@ def pretrain_or_linear_eval(
         model.load_state_dict(ckpt['model'])
         best_test_acc1 = ckpt['best_test_acc1']
         [topk_acc1s.push_q(x) for x in ckpt['topk_acc1s']]
-        if ckpt['adv_last_itrt_idx'] is not None:
+        if ckpt['adv_last_itrt_idx'] != -1 and adv_args is not None:
             adv_args[-1][-1] = ckpt['adv_last_itrt_idx']
         
         epoch_start = ckpt['epoch'] + 1
@@ -547,7 +547,7 @@ def pretrain_or_linear_eval(
         state_dict = {
             'arch': meta.arch, 'epoch': epoch, 'model': model.state_dict(), 'optimizer': optimizer.state_dict(),
             'topk_acc1s': list(topk_acc1s),
-            'adv_last_itrt_idx': adv_args[-1][-1]
+            'adv_last_itrt_idx': adv_args[-1][-1] if adv_args is not None else -1
         }
         if best_updated:
             best_test_acc1 = test_acc1
