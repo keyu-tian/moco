@@ -4,15 +4,11 @@ import os
 import time
 from copy import deepcopy
 from datetime import datetime
-import random
 from logging import Logger
 from pprint import pformat as pf
 from typing import NamedTuple, Optional, List, Union, Iterator, Tuple
 
 import colorama
-import torch
-import torch.nn.functional as F
-from PIL import Image
 from rsa.prime import is_prime
 from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
@@ -201,7 +197,7 @@ def main_process(args, dist: TorchDistManager):
         (Color(Color.RANGES[8]), 'colors'),
         (Contrast(Contrast.RANGES[5]), 'contra'),
         (Brightness(Brightness.RANGES[3]), 'bright'),
-        (transforms.RandomApply([transforms.RandomChoice([Equalize(), AutoContrast()])], 2/3), 'equatc'),
+        (transforms.RandomApply([transforms.RandomChoice([Equalize(), AutoContrast()])], 2 / 3), 'equatc'),
         (transforms.RandomApply([AutoContrast()], 0.5), 'atcrst'),
         (transforms.ColorJitter(0.4, 0.4, 0.4, 0.1), 'coljit'),
     ]:
@@ -222,7 +218,7 @@ def main_process(args, dist: TorchDistManager):
             transforms.ToTensor(),
         )
         trans.append((t, f'{name}_rrc'))
-
+    
     pret_transform = transforms.Compose([
         transforms.RandomResizedCrop(32),
         transforms.RandomHorizontalFlip(p=0.5),
@@ -297,7 +293,7 @@ def main_process(args, dist: TorchDistManager):
                 knn_data, batch_sampler=InfiniteBatchSampler(len(knn_data), args.batch_size * 2, shuffle=False, drop_last=False, fill_last=False),
                 **data_kw)
             knn_iters, knn_itrt = len(knn_loader), iter(knn_loader)
-            lg.info(f'=> [main]: prepare knn_data  (iters={knn_iters }, ddp={args.torch_ddp}): @ {args.dataset}')
+            lg.info(f'=> [main]: prepare knn_data  (iters={knn_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
             
             test_data = CIFAR10(root=ds_root, train=False, transform=test_transform, download=False)
             test_loader = DataLoader(
@@ -374,7 +370,7 @@ def main_process(args, dist: TorchDistManager):
                 del d[k]
         msg = lnr_eval_model.encoder_q.load_state_dict(d, strict=False)
         assert len(msg.unexpected_keys) == 0 and all(k.startswith('fc.') for k in msg.missing_keys)
-
+    
     l_tb_lg._verbose = True
     pretrain_or_linear_eval(
         None, None, args.num_classes, ExpMeta(
@@ -638,7 +634,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
                     itrt = last_itrt
             else:
                 itrt = tr_itrt if (cur_iter // sw_freq & 1) == sw_inv else sw_itrt
-                if reset_op and cur_iter > 1 and (((cur_iter-1) // sw_freq & 1) != (cur_iter // sw_freq & 1)):
+                if reset_op and cur_iter > 1 and (((cur_iter - 1) // sw_freq & 1) != (cur_iter // sw_freq & 1)):
                     op.load_state_dict(initial_op_state)
                     # master_echo(dist.is_master(), f'reset op, cur_iter={cur_iter} ({round((cur_iter+1) // tr_iters, 2)} ep)')
             data1, data2 = next(itrt)
@@ -705,7 +701,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         if cur_iter == sw_freq:
             master_echo(True, f'[rk{dist.rank:2d}] barrier test')
             dist.barrier()
-            
+        
         last_t = time.time()
     
     return tot_loss / tot_num
