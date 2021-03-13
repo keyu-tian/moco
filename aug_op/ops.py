@@ -203,7 +203,7 @@ class RandomPerspective(object):
         C, H, W = img.shape
         _, homo = self._get_pos_and_homo(H, W)
         
-        mags = [self.magnitude * t for t in random.choices([-1, 0, 1], weights=[1, 4, 1], k=9)]
+        mags = [self.magnitude * t for t in random.choices([-1, 0, 1], weights=[1, 4.2, 1], k=9)]
         rot, sc_x, sc_y, sh_x, sh_y, tr_x, tr_y, ps_x, ps_y = mags
         
         mats = []
