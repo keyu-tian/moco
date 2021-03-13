@@ -206,15 +206,18 @@ def main_process(args, dist: TorchDistManager):
         (Contrast(Contrast.RANGES[5]), 'contra'),
         (Brightness(Brightness.RANGES[3]), 'bright'),
         (transforms.RandomApply([transforms.RandomChoice([Equalize(), AutoContrast()])], 2/3), 'equatc'),
-        (transforms.Compose([transforms.RandomApply([AutoContrast()], 0.5), Sharpness(Sharpness.RANGES[7])]), 'atcshp'),
+        (transforms.RandomApply([AutoContrast()], 0.5), 'atcrst'),
         (transforms.ColorJitter(0.4, 0.4, 0.4, 0.1), 'coljit'),
     ]:
-        tr = transforms.Compose([transforms.RandomApply([color_tr], p=0.8), transforms.RandomGrayscale(p=0.2)])
+        ls = [transforms.RandomApply([color_tr], p=0.8), transforms.RandomGrayscale(p=0.2)]
+        if name != 'coljit':
+            ls.append(transforms.RandomApply([Sharpness(Sharpness.RANGES[5])], p=0.5))
+        tr = transforms.Compose(ls)
         t = compose(
             transforms.RandomCrop(32, padding=6, padding_mode='edge'),
             tr,
             transforms.ToTensor(),
-            RandomPerspective(RandomPerspective.RANGES[5]),
+            RandomPerspective(RandomPerspective.RANGES[4]),
         )
         trans.append((t, f'{name}_per'))
         t = compose(
@@ -235,7 +238,7 @@ def main_process(args, dist: TorchDistManager):
     swap_transform = transforms.Compose([
         transforms.RandomResizedCrop(32),
         transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomApply([AutoContrast()], p=0.5),
+        transforms.RandomApply([AutoContrast()], p=0.8),
         transforms.RandomApply([Sharpness(Sharpness.RANGES[4])], p=0.5),
         transforms.ToTensor(),
         get_normalize(args.dataset)
