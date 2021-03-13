@@ -852,7 +852,6 @@ def select_itrts(dist: TorchDistManager, model: ModelMoCo, tr_iters: int, candid
     dist.broadcast(y, 11)
     master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] y={y[0].item()}')
     
-    
     for _, param in model.state_dict().items():
         dist.broadcast(param.data, 0)
     master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] broadcast')
