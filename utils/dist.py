@@ -126,6 +126,7 @@ class TorchDistManager:
     
     def __init__(self, *args):
         if torch.cuda.is_available():
+            set_start_method('spawn')
             # ntasks = int(os.environ['SLURM_NTASKS'])  # world_size
             proc_id = int(os.environ['SLURM_PROCID'])   # world rank
             # node_list = os.environ['SLURM_NODELIST']
