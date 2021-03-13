@@ -15,7 +15,7 @@ from utils.misc import time_str
 class TorchDistManager:
     WORLD_GROUP = dist.group.WORLD if torch.cuda.is_available() else None
     
-    def __init__(self, node0_addr: Union[int, str], node0_port: Union[int, str], mp_start_method: str = 'fork', backend: str = 'nccl'):
+    def __init__(self, node0_addr: Union[int, str], node0_port: Union[int, str], mp_start_method: str = 'fork', backend: str = 'nccl', exp_dirname: str = ''):
         set_start_method(mp_start_method, force=True)
         self.backend = backend
         # if multi_nodes:   # if $2 > ntasks-per-node
@@ -23,7 +23,7 @@ class TorchDistManager:
         world_size: int = int(os.environ['SLURM_NTASKS'])
         rank: int = int(os.environ['SLURM_PROCID'])
         
-        temp_f_path = os.path.join(os.getcwd(), f'.temp_{os.environ["SLURM_NODELIST"]}.json')
+        temp_f_path = os.path.join(os.getcwd(), f'.temp_{exp_dirname}_{os.environ["SLURM_NODELIST"]}.json')
         self.temp_f_path = temp_f_path
         if rank == 0:
             node0_addr = str(node0_addr).lower()

@@ -117,7 +117,7 @@ def main():
     args.prj_root = os.getcwd()
     os.chdir(args.sh_root)
     
-    dist = TorchDistManager('auto', 'auto')
+    dist = TorchDistManager('auto', 'auto', args.exp_dirname)
     
     main_process(args, dist)
 
