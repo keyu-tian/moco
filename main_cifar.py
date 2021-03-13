@@ -274,7 +274,7 @@ def main_process(args, dist: TorchDistManager):
                 for t, name in trans:
                     ds = CIFAR10Pair(root=ds_root, train=True, transform=t, download=False)
                     ld = DataLoader(
-                        ds, batch_sampler=InfiniteBatchSampler(len(ds), args.batch_size, shuffle=True, drop_last=False, fill_last=False, seed=0),
+                        ds, batch_sampler=InfiniteBatchSampler(len(ds), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),        # todo: 本来这里不应该drop last的，因为要用整50000张衡量才公平，但是考虑到代码方便（因为train函数里的itrt可能是train也可能是sw，他们应该是一样的都drop_last）
                         **data_kw)
                     swap_iters = len(ld)
                     swap_itrt.append((iter(ld), name))
@@ -286,6 +286,7 @@ def main_process(args, dist: TorchDistManager):
                     **data_kw)
                 swap_iters, swap_itrt = len(swap_loader), iter(swap_loader)
             lg.info(f'=> [main]: prepare swap_data (iters={swap_iters}, ddp={args.torch_ddp}, adv={args.adversarial}): @ {args.dataset}')
+            assert swap_iters == pret_iters
             
             knn_data = CIFAR10(root=ds_root, train=True, transform=test_transform, download=False)
             knn_loader = DataLoader(
