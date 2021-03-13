@@ -852,7 +852,7 @@ def select_itrts(dist: TorchDistManager, model: ModelMoCo, tr_iters: int, candid
     master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] x={x[0].item()}')
 
     y = torch.tensor([dist.rank], dtype=torch.float)
-    dist.broadcast(y, 11)
+    dist.broadcast(y, dist.world_size - 1)
     master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] y={y[0].item()}')
     
     for _, param in model.state_dict().items():
