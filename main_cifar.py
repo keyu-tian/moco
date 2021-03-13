@@ -392,7 +392,7 @@ class ExpMeta(NamedTuple):
     coslr: bool
     schedule: List[int]
     warmup: bool
-    grad_clip: str
+    grad_clip: Optional[float]
 
 
 def pretrain_or_linear_eval(
