@@ -259,7 +259,7 @@ def main_process(args, dist: TorchDistManager):
     lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {ds_root}')
     
     # todo: transform=trans[dist.rank]改一下，不应该是这样的
-    swap_data = CIFAR10Pair(root=ds_root, train=True, transform=trans[dist.rank], download=False)
+    swap_data = CIFAR10Pair(root=ds_root, train=True, transform=trans[dist.rank][0], download=False)
     swap_loader = DataLoader(
         swap_data, batch_sampler=InfiniteBatchSampler(len(swap_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),
         **data_kw)
