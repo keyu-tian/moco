@@ -211,7 +211,7 @@ def main_process(args, dist: TorchDistManager):
     ]:
         ls = [transforms.RandomApply([color_tr], p=0.8), transforms.RandomGrayscale(p=0.2)]
         if name != 'coljit':
-            ls.append(transforms.RandomApply([Sharpness(Sharpness.RANGES[5])], p=0.5))
+            ls.append(transforms.RandomApply([Sharpness(Sharpness.RANGES[4])], p=0.5))
         tr = transforms.Compose(ls)
         t = compose(
             transforms.RandomCrop(32, padding=6, padding_mode='edge'),
