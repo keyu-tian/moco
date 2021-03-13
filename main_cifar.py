@@ -90,11 +90,18 @@ parser.add_argument('--reset_op', action='store_true')
 
 
 class CIFAR10Pair(CIFAR10):
+    def __init__(self, root, train, transform, download):
+        super().__init__(root, train=train, transform=transform, download=download)
+        self.cnt = 0
+
     def __getitem__(self, index):
+        self.cnt += 1
         img = self.data[index]
         img = Image.fromarray(img)
         im_1 = self.transform(img)
         im_2 = self.transform(img)
+        
+        # todo: 观察到最后的数字后，假设最终是x，那先跑一个“cnt>x则assert False”发现不出错，再跑一个置flag=1（这样多进程的其他进程不会置1）and cnt==x则assert False发现assert了（说明多进程的其他进程真的也刚好访问了x次！）
         
         return im_1, im_2
 
@@ -309,10 +316,12 @@ def main_process(args, dist: TorchDistManager):
             eval_iters, eval_itrt = len(eval_loader), iter(eval_loader)
             lg.info(f'=> [main]: prepare eval_data (iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
             
+            master_echo(True, f'    finished!', '37', tail='')
             if args.swap_epochs is not None:
                 args.swap_iters = round(args.swap_epochs * swap_iters)
+                if args.adversarial:
+                    assert args.swap_epochs >= 1
             lg.info(f'=> [main]: args:\n{pf(vars(args))}\n')
-            master_echo(True, f'    finished!', '37', tail='')
             if args.swap_iters is not None:
                 master_echo(dist.is_master(), f'[explore]: args.swap_iters={args.swap_iters} ({args.swap_iters / swap_iters:.2g} epochs)')
         dist.barrier()
@@ -361,7 +370,7 @@ def main_process(args, dist: TorchDistManager):
                 args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.resume_ckpt,
                 args.epochs, args.lr, args.wd, args.nowd, args.coslr, args.schedule, args.warmup, args.grad_clip
             ),
-            lg, g_tb_lg, l_tb_lg, dist, pretrain_model, pret_iters, pret_itrt, test_iters, test_itrt
+            lg, g_tb_lg, l_tb_lg, dist, pretrain_model, pret_iters, pret_itrt, test_iters, test_itrt, pret_data
         )
         d = pretrain_model.encoder_q.state_dict()
         ks = deepcopy(list(d.keys()))
@@ -377,7 +386,7 @@ def main_process(args, dist: TorchDistManager):
             args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.eval_resume_ckpt,
             args.eval_epochs, args.eval_lr, args.eval_wd, args.eval_nowd, args.eval_coslr, args.eval_schedule, args.eval_warmup, args.eval_grad_clip
         ),
-        lg, g_tb_lg, l_tb_lg, dist, lnr_eval_model.encoder_q, eval_iters, eval_itrt, test_iters, test_itrt
+        lg, g_tb_lg, l_tb_lg, dist, lnr_eval_model.encoder_q, eval_iters, eval_itrt, test_iters, test_itrt, pret_data
     )
     
     g_tb_lg.close()
@@ -412,7 +421,7 @@ def pretrain_or_linear_eval(
         meta: ExpMeta, lg: Logger, g_tb_lg: SummaryWriter, l_tb_lg: SummaryWriter,
         dist: TorchDistManager, model: Union[ModelMoCo, torch.nn.Module],
         tr_iters: int, tr_itrt: Iterator[DataLoader], te_iters: int, te_itrt: Iterator[DataLoader],
-
+        tr_set
 ):
     is_pretrain = pretrain_knn_args is not None
     assert is_pretrain == isinstance(model, ModelMoCo)
@@ -497,6 +506,10 @@ def pretrain_or_linear_eval(
         
         start_t = time.time()
         tr_loss = train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_iters, tr_itrt, model, params, optimizer, initial_op_state, avgs, swap_args)
+        for rk in range(dist.world_size):
+            if rk == dist.rank:
+                master_echo(True, f'[rk{dist.rank:02d}] cnt={tr_set.cnt}')
+            dist.barrier()
         train_t = time.time()
         
         if is_pretrain:

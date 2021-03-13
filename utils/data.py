@@ -14,7 +14,7 @@ class InfiniteBatchSampler(Sampler):
         self.max_p = self.iters_per_ep * batch_size
         self.fill_last = fill_last
         self.shuffle = shuffle
-        self.epoch = 0
+        self.epoch = 1
         self.seed = seed
         self.indices = self.gener_indices()
     
