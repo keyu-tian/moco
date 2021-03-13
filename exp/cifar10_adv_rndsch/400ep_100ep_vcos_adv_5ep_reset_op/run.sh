@@ -11,7 +11,7 @@ srun \
 --job-name "${DIR_NAME}" \
 --mpi=pmi2 -p $1 -n8 --gres=gpu:8 \
 --ntasks-per-node=8 \
---cpus-per-task=5 \
+--cpus-per-task=6 \
 python -u -m main_cifar \
 --main_py_rel_path="${REL_PATH}" \
 --exp_dirname="${EXP_DIR}" \
