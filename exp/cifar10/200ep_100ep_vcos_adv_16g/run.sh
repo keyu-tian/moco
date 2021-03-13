@@ -6,7 +6,7 @@ python "${REL_PATH}monitor.py" "${EXP_DIR}" &
 
 PYTHONPATH=${PYTHONPATH}:${REL_PATH} \
 srun \
---job-name "${DIR_NAME}" \
+--job-name "${DIR_NAME}----${EXP_DIR}" \
 --mpi=pmi2 -p $1 -n16 --gres=gpu:8 \
 --ntasks-per-node=8 \
 --cpus-per-task=5 \

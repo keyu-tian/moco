@@ -20,8 +20,8 @@ if __name__ == '__main__':
         with open(path, 'w', encoding='utf-8') as fp:
             fp.write(
                 ctt.replace(
-                    '-n12',
-                    '-n8',
+                    '"${DIR_NAME}"',
+                    '"${DIR_NAME}----${EXP_DIR}"',
                 )
             )
     

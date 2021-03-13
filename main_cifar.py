@@ -276,7 +276,7 @@ def main_process(args, dist: TorchDistManager):
     
     for rk in range(dist.world_size):
         if rk == dist.rank:
-            master_echo(True, f'{time_str()}[rk{dist.rank:2d}] construct dataloaders...', tail='\\c')
+            master_echo(True, f'{time_str()}[rk{dist.rank:2d}] construct dataloaders... ', tail='\\c')
             pret_data = CIFAR10Pair(root=ds_root, train=True, transform=pret_transform, download=False)
             pret_ld = DataLoader(pret_data, batch_size=args.batch_size, shuffle=True, drop_last=True, **data_kw)
             pret_iters = len(pret_ld)
@@ -715,9 +715,10 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
                 l_tb_lg.add_scalar(f'{prefix}/train_acc5', tr_acc5_avg.avg, cur_iter)
             lg.info(
                 f'\n'
-                f'    ep[{ep_str}] it[{it + 1}/{tr_iters}]: L={tr_loss_avg.avg:.4g} {acc_str}\n'
-                f'     {prefix} da[{data_t - last_t:.3f}], cu[{cuda_t - data_t:.3f}], fo[{forw_t - cuda_t:.3f}], ba[{back_t - forw_t:.3f}], '
-                f'cl[{clip_t - back_t:.3f}], op[{step_t - clip_t:.3f}]'
+                f'       ep[{ep_str}] it[{it + 1}/{tr_iters}]:'
+                f' L={tr_loss_avg.avg:.4g} {acc_str}      '
+                f' da[{data_t - last_t:.3f}], cu[{cuda_t - data_t:.3f}], fo[{forw_t - cuda_t:.3f}], ba[{back_t - forw_t:.3f}],'
+                f' cl[{clip_t - back_t:.3f}], op[{step_t - clip_t:.3f}]'
             )
         
         last_t = time.time()
@@ -833,10 +834,12 @@ def select_loader(dist: TorchDistManager, model: ModelMoCo, tr_iters: int, candi
     # dist.broadcast(y, dist.world_size - 1)
     # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] y={y[0].item()}')
     
+    master_echo(dist.is_master(), f'[adver.] broadcast params... ', tail='\\c')
     for _, param in model.state_dict().items():
         dist.broadcast(param.data, 0)
+    master_echo(dist.is_master(), f'    finished!', '36', tail='')
     # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] broadcast')
-    
+
     model.eval()
     with torch.no_grad():
         tot_loss, tot_num = 0., 0
