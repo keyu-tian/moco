@@ -474,7 +474,7 @@ def pretrain_or_linear_eval(
         optimizer.load_state_dict(ckpt['optimizer'])
     initial_op_state = optimizer.state_dict()
     
-    time.sleep(1 + dist.rank)
+    time.sleep(1 + 2 * dist.rank)
     
     loop_start_t = time.time()
     epoch_speed = AverageMeter(3)
