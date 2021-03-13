@@ -90,6 +90,7 @@ parser.add_argument('--swap_epochs', default=None, type=float)
 parser.add_argument('--swap_iters', default=None, type=int)
 parser.add_argument('--swap_inv', action='store_true')
 parser.add_argument('--adversarial', action='store_true')
+parser.add_argument('--reset_op', action='store_true')
 
 
 # todo: adversarial
@@ -306,9 +307,9 @@ def main_process(args, dist: TorchDistManager):
             if args.swap_epochs is not None:
                 args.swap_iters = round(args.swap_epochs * swap_iters)
             lg.info(f'=> [main]: args:\n{pf(vars(args))}\n')
+            master_echo(True, f'    finished!', '37', tail='')
             if args.swap_iters is not None:
                 master_echo(dist.is_master(), f'[explore]: args.swap_iters={args.swap_iters} ({args.swap_iters / swap_iters:.2g} epochs)')
-            master_echo(True, f'    finished!', '37', tail='')
         dist.barrier()
     
     lg.info(
@@ -349,7 +350,7 @@ def main_process(args, dist: TorchDistManager):
     if args.eval_resume_ckpt is None:
         if not args.pret_verbose and not dist.is_master():
             l_tb_lg._verbose = False
-        sw_kw = (args.swap_iters, swap_itrt, args.swap_inv) if args.swap_iters is not None else None
+        sw_kw = (args.swap_iters, swap_itrt, args.swap_inv, args.reset_op) if args.swap_iters is not None else None
         pretrain_or_linear_eval(
             (knn_iters, knn_itrt, args.knn_k, args.knn_t, knn_loader.dataset.targets), sw_kw, args.num_classes, ExpMeta(
                 args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.resume_ckpt,
@@ -471,6 +472,7 @@ def pretrain_or_linear_eval(
     if ckpt is not None:
         lg.info(f'=> [{prefix}]: load optimizer.state from {meta.resume_ckpt}')
         optimizer.load_state_dict(ckpt['optimizer'])
+    initial_op_state = optimizer.state_dict()
     
     loop_start_t = time.time()
     epoch_speed = AverageMeter(3)
@@ -487,7 +489,7 @@ def pretrain_or_linear_eval(
             master_echo(dist.is_master(), f' @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s ')
         
         start_t = time.time()
-        tr_loss = train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_iters, tr_itrt, model, params, optimizer, avgs, swap_args)
+        tr_loss = train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_iters, tr_itrt, model, params, optimizer, initial_op_state, avgs, swap_args)
         train_t = time.time()
         
         if is_pretrain:
@@ -580,9 +582,9 @@ def pretrain_or_linear_eval(
 
 
 # pretrain for one epoch
-def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_iters, tr_itrt, model, params, op, avgs, swap_args=None):
+def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_iters, tr_itrt, model, params, op, initial_op_state, avgs, swap_args=None):
     if is_pretrain and swap_args is not None:
-        sw_freq, sw_itrt, sw_inv = swap_args
+        sw_freq, sw_itrt, sw_inv, reset_op = swap_args
         sw_inv = int(sw_inv)
         model.train()
     else:
@@ -604,6 +606,8 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         
         if is_pretrain:
             itrt = tr_itrt if (cur_iter // sw_freq & 1) == sw_inv else sw_itrt
+            if reset_op and cur_iter > 1 and (((cur_iter-1) // sw_freq & 1) != (cur_iter // sw_freq & 1)):
+                op.load_state_dict(initial_op_state)
             # todo: if it is adv., plz change this: every iter should keep the same pace with each other, in other words, they should next(.) together
             # todo: 不必要，如果是开eval模式并且不改queue buffer，然后衡量整个dataest的loss，就和顺序无关了，只要遍历完dataset就行了（但这样需要一个不drop也不fill last的dataloader）
             # todo: 记得每次选完之后（每5epoch选1个），log出每个trans累计被选中的次数之和
