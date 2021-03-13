@@ -9,7 +9,7 @@ python "${REL_PATH}monitor.py" "${EXP_DIR}" &
 PYTHONPATH=${PYTHONPATH}:${REL_PATH} \
 srun \
 --job-name "${DIR_NAME}" \
---mpi=pmi2 -p $1 -n12 --gres=gpu:8 \
+--mpi=pmi2 -p $1 -n8 --gres=gpu:8 \
 --ntasks-per-node=8 \
 --cpus-per-task=5 \
 python -u -m main_cifar \
@@ -18,17 +18,17 @@ python -u -m main_cifar \
 --moco_m=0.99 \
 --moco_t=0.1 \
 --moco_symm \
---epochs=8 \
+--epochs=400 \
 --coslr \
 --warmup \
 --grad_clip=None \
---eval_epochs=2 \
+--eval_epochs=100 \
 --eval_coslr \
 --dataset=cifar10 \
 --num_workers=4 \
 --pin_mem \
 --pret_verbose \
---adv_epochs=2 \
+--swap_epochs=5 \
 #--reset_op \
 #--sbn \
 #--warmup

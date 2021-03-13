@@ -21,7 +21,7 @@ if __name__ == '__main__':
             fp.write(
                 ctt.replace(
                     '-n12',
-                    '-n16',
+                    '-n8',
                 )
             )
     

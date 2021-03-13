@@ -9,7 +9,7 @@ python "${REL_PATH}monitor.py" "${EXP_DIR}" &
 PYTHONPATH=${PYTHONPATH}:${REL_PATH} \
 srun \
 --job-name "${DIR_NAME}" \
---mpi=pmi2 -p $1 -n12 --gres=gpu:8 \
+--mpi=pmi2 -p $1 -n8 --gres=gpu:8 \
 --ntasks-per-node=8 \
 --cpus-per-task=5 \
 python -u -m main_cifar \
@@ -28,7 +28,7 @@ python -u -m main_cifar \
 --num_workers=4 \
 --pin_mem \
 --pret_verbose \
---swap_epochs=5 \
+--adv_epochs=5 \
 --reset_op \
 #--sbn \
 #--warmup
