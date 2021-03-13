@@ -651,7 +651,6 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
                     op.load_state_dict(initial_op_state)
             else:
                 itrt = tr_itrt
-                    # master_echo(dist.is_master(), f'reset op, cur_iter={cur_iter} ({round((cur_iter+1) // tr_iters, 2)} ep)')
             data1, data2 = next(itrt)
         else:
             data1, data2 = next(tr_itrt)
