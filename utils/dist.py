@@ -141,7 +141,7 @@ class TorchDistManager:
             # print(f'[link init] rank[{rank:02d}]: world_size={world_size}, gres_gpu={gres_gpu}, device={device}')
             # link.barrier()
             # link.synchronize()
-            assert device == int(os.environ['SLURM_LOCALID'])
+            # assert device == int(os.environ['SLURM_LOCALID'])
         else:   # just for local debugging
             world_size, rank, device = 1, 0, 0
         self.world_size, self.rank, self.dev_idx = world_size, rank, device
