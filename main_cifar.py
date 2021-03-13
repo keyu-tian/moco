@@ -119,6 +119,9 @@ def main():
     dist = TorchDistManager(args.exp_dirname, 'auto', 'auto')
     
     main_process(args, dist)
+    
+    if isinstance(dist.WORLD_GROUP, int):
+        dist.finalize()
 
 
 seatable_kw = {}

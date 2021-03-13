@@ -124,7 +124,7 @@ except ImportError:
 class TorchDistManager:
     WORLD_GROUP = 0
     
-    def __init__(self):
+    def __init__(self, *args):
         if torch.cuda.is_available():
             # ntasks = int(os.environ['SLURM_NTASKS'])  # world_size
             proc_id = int(os.environ['SLURM_PROCID'])   # world rank
