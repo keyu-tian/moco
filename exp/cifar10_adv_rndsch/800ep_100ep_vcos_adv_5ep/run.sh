@@ -29,7 +29,7 @@ python -u -m main_cifar \
 --pin_mem \
 --pret_verbose \
 --adv_epochs=5 \
---reset_op \
+#--reset_op \
 #--sbn \
 #--warmup
 #--nowd
