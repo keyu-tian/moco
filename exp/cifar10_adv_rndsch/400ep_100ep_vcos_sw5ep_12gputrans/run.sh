@@ -1,3 +1,5 @@
+sleep $2
+
 REL_PATH=../../../
 DIR_NAME="${PWD##*/}"
 EXP_DIR="exp-$(date "+%Y-%m%d-%H%M%S")-$1"
