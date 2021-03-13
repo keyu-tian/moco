@@ -285,7 +285,7 @@ def main_process(args, dist: TorchDistManager):
                     swap_data, batch_sampler=InfiniteBatchSampler(len(swap_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),
                     **data_kw)
                 swap_iters, swap_itrt = len(swap_loader), iter(swap_loader)
-            lg.info(f'=> [main]: prepare swap_data (iters={swap_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
+            lg.info(f'=> [main]: prepare swap_data (iters={swap_iters}, ddp={args.torch_ddp}, adv={args.adversarial}): @ {args.dataset}')
             assert swap_iters == pret_iters
             
             knn_data = CIFAR10(root=ds_root, train=True, transform=test_transform, download=False)
