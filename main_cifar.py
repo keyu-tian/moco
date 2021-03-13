@@ -421,9 +421,9 @@ def pretrain_or_linear_eval(
         meta = meta._replace(schedule=sc)
     
     if meta.grad_clip == 'None':
-        meta.grad_clip = None
+        meta = meta._replace(grad_clip=None)
     else:
-        meta.grad_clip = float(meta.grad_clip)
+        meta = meta._replace(grad_clip=float(meta.grad_clip))
     
     # load model if resume
     epoch_start = 0
