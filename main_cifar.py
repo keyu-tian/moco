@@ -841,20 +841,24 @@ def sanity_check(current_state, initial_state):
 
 
 def select_itrts(dist: TorchDistManager, model: ModelMoCo, tr_iters: int, candidate_itrt: Iterator[DataLoader]):
-    master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] before the selection')
+    master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] begin')
     for _, param in model.state_dict().items():
         dist.broadcast(param.data, 0)
-        
+    master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] broadcast')
+    
     model.eval()
     with torch.no_grad():
         tot_loss, tot_num = 0., 0
         for it in range(tr_iters):
+            if it == 0:
+                master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] iter 0')
             data1, data2 = next(candidate_itrt)
             bs = data1.shape[0]
             tot_loss += model(data1.cuda(non_blocking=True), data2.cuda(non_blocking=True), training=False).item() * bs
+        master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] dist')
         idx = dist.dist_fmt_vals(tot_loss / 50000, None).argmax().item()
     model.train()
-    master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] after the selection')
+    master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] end')
     return idx
 
 
