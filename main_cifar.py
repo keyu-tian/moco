@@ -730,7 +730,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
                 f'cl[{clip_t - back_t:.3f}], op[{step_t - clip_t:.3f}]'
             )
         
-        if cur_iter == sw_freq:
+        if adversarial and cur_iter == 4 * ad_freq + 1:
             master_echo(True, f'[rk{dist.rank:2d}] barrier test')
             dist.barrier()
         
