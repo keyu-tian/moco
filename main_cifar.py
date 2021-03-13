@@ -266,7 +266,7 @@ def main_process(args, dist: TorchDistManager):
     
     for rk in range(dist.world_size):
         if rk == dist.rank:
-            master_echo(True, f'[rk{dist.rank:2d}] construct dataloaders...', tail='\\c')
+            master_echo(True, f'{time_str()}[rk{dist.rank:2d}] construct dataloaders...', tail='\\c')
             pret_data = CIFAR10Pair(root=ds_root, train=True, transform=pret_transform, download=False)
             pret_loader = DataLoader(
                 pret_data, batch_sampler=InfiniteBatchSampler(len(pret_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),
