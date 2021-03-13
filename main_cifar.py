@@ -60,7 +60,7 @@ parser.add_argument('--schedule', default=[120, 160], nargs='*', type=int, help=
 parser.add_argument('--warmup', action='store_true', help='use warming up')
 parser.add_argument('--wd', default=5e-4, type=float, metavar='W', help='weight decay')
 parser.add_argument('--nowd', action='store_true', help='no wd for params of bn and bias')
-parser.add_argument('--grad_clip', default=5, type=float, help='max grad norm')
+parser.add_argument('--grad_clip', default='5', type=str, help='max grad norm')
 
 # linear evaluation
 parser.add_argument('--eval_epochs', default=100, type=int, metavar='N', help='number of total epochs to run')
@@ -72,7 +72,7 @@ parser.add_argument('--eval_schedule', default=[60, 80], nargs='*', type=int, he
 parser.add_argument('--eval_warmup', action='store_true', help='use warming up')
 parser.add_argument('--eval_wd', default=0., type=float, metavar='W', help='weight decay')
 parser.add_argument('--eval_nowd', action='store_true', help='no wd for params of bn and bias')
-parser.add_argument('--eval_grad_clip', default=5, type=float, help='max grad norm')
+parser.add_argument('--eval_grad_clip', default='5', type=str, help='max grad norm')
 
 # data
 parser.add_argument('--dataset', default='cifar10', choices=['cifar10', 'cifar100', 'imagenet'])
@@ -392,7 +392,7 @@ class ExpMeta(NamedTuple):
     coslr: bool
     schedule: List[int]
     warmup: bool
-    grad_clip: float
+    grad_clip: str
 
 
 def pretrain_or_linear_eval(
@@ -419,6 +419,11 @@ def pretrain_or_linear_eval(
             sc[i] = milestone_epoch * tr_iters
         lg.info(f'=> [{prefix}]: updated lr schedule={sc} ({type(sc)})')
         meta = meta._replace(schedule=sc)
+    
+    if meta.grad_clip == 'None':
+        meta.grad_clip = None
+    else:
+        meta.grad_clip = float(meta.grad_clip)
     
     # load model if resume
     epoch_start = 0
@@ -504,7 +509,7 @@ def pretrain_or_linear_eval(
         
         remain_time, finish_time = epoch_speed.time_preds(meta.epochs - (epoch + 1))
         lg.info(
-            f'=> [ep {ep_str}/{meta.epochs}]: L={tr_loss:.2g}, te-acc={test_acc1:5.2f}, tr={train_t - start_t:.2f}s, te={test_t - train_t:.2f}s       best={best_test_acc1:5.2f}\n'
+            f'=> [ep {ep_str}/{meta.epochs}]: L={tr_loss:.4g}, te-acc={test_acc1:5.2f}, tr={train_t - start_t:.2f}s, te={test_t - train_t:.2f}s       best={best_test_acc1:5.2f}\n'
             f'    {prefix} [{str(remain_time)}] ({finish_time})'
         )
         if dist.is_master():
@@ -624,7 +629,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         loss.backward()
         back_t = time.time()
         sche_lr = adjust_learning_rate(op, cur_iter, max_iter, meta.lr, meta)
-        clipping = cur_iter < tr_iters * 30
+        clipping = meta.grad_clip is not None and cur_iter < tr_iters * 8
         if clipping:
             orig_norm = torch.nn.utils.clip_grad_norm_(params, meta.grad_clip)
         else:
@@ -652,7 +657,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
                 l_tb_lg.add_scalar(f'{prefix}/train_acc5', tr_acc5_avg.avg, cur_iter)
             lg.info(
                 f'\n'
-                f'    ep[{ep_str}] it[{it + 1}/{tr_iters}]: L={tr_loss_avg.avg:.2g} {acc_str}\n'
+                f'    ep[{ep_str}] it[{it + 1}/{tr_iters}]: L={tr_loss_avg.avg:.4g} {acc_str}\n'
                 f'     {prefix} da[{data_t - last_t:.3f}], cu[{cuda_t - data_t:.3f}], fo[{forw_t - cuda_t:.3f}], ba[{back_t - forw_t:.3f}], '
                 f'cl[{clip_t - back_t:.3f}], op[{step_t - clip_t:.3f}]'
             )

@@ -18,6 +18,8 @@ python -u -m main_cifar \
 --moco_symm \
 --epochs=400 \
 --coslr \
+--warmup \
+--grad_clip=None \
 --eval_epochs=100 \
 --eval_coslr \
 --dataset=cifar10 \
