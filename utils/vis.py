@@ -64,7 +64,7 @@ if __name__ == '__main__':
         # Color(Color.RANGES[7]),
         
         transforms.ToTensor(),
-        RandomPerspective(RandomPerspective.RANGES[4]),
+        RandomPerspective(RandomPerspective.RANGES[5]),
         transforms.Normalize(MEAN, STD)
     ])
     aug2_trans = transforms.Compose([
