@@ -27,9 +27,8 @@ python -u -m main_cifar \
 --dataset=cifar10 \
 --num_workers=4 \
 --pin_mem \
---swap_epochs=5 \
 --pret_verbose \
---adversarial \
+--adv_epochs=5 \
 --reset_op \
 #--sbn \
 #--warmup
