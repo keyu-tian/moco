@@ -345,7 +345,7 @@ def main_process(args, dist: TorchDistManager):
                 master_echo(dist.is_master(), f'[explore.adv]: args.adv_iters={args.adv_iters} ({args.adv_iters / pret_iters:.2g} epochs)')
             
             swap_args = (args.swap_iters, swap_adv_itrt, args.swap_inv, args.reset_op) if args.swapping else None
-            adv_args = (args.adv_iters, rand_itrt, swap_adv_itrt, get_adv_itrt, trans, {tu[1]: 0 for tu in trans}, args.reset_op, [None]) if args.adversarial else None
+            adv_args = (args.adv_iters, rand_itrt, swap_adv_itrt, get_adv_itrt, trans, {tu[1]: 0 for tu in trans}, args.reset_op, [None, -1]) if args.adversarial else None
             lg.info(f'=> [main]: args:\n{pf(vars(args))}\n')
             
         dist.barrier()
@@ -478,6 +478,8 @@ def pretrain_or_linear_eval(
         model.load_state_dict(ckpt['model'])
         best_test_acc1 = ckpt['best_test_acc1']
         [topk_acc1s.push_q(x) for x in ckpt['topk_acc1s']]
+        if ckpt['adv_last_itrt_idx'] is not None:
+            adv_args[-1][-1] = ckpt['adv_last_itrt_idx']
         
         epoch_start = ckpt['epoch'] + 1
         lg.info(f'=> [{prefix}]: ckpt loaded from {meta.resume_ckpt}, last_ep={epoch_start - 1}, ep_start={epoch_start}')
@@ -545,6 +547,7 @@ def pretrain_or_linear_eval(
         state_dict = {
             'arch': meta.arch, 'epoch': epoch, 'model': model.state_dict(), 'optimizer': optimizer.state_dict(),
             'topk_acc1s': list(topk_acc1s),
+            'adv_last_itrt_idx': adv_args[-1][-1]
         }
         if best_updated:
             best_test_acc1 = test_acc1
@@ -658,6 +661,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
                     idx = select_itrts(dist, model, tr_iters, candidate_itrt)
                     tr, name = trans[idx]
                     last_itrt_ls[0] = itrt = get_adv_itrt(tr, cur_iter)
+                    last_itrt_ls[1] = idx
                     lg.info(f'[adver.] transform={name}')
                     master_echo(dist.is_master(), f'[adver.] transform={name}')
                     
