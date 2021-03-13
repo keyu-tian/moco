@@ -93,6 +93,7 @@ class CIFAR10Pair(CIFAR10):
     def __init__(self, root, train, transform, download):
         super().__init__(root, train=train, transform=transform, download=download)
         self.cnt = 0
+        self.flag = 0
 
     def __getitem__(self, index):
         self.cnt += 1
@@ -102,6 +103,11 @@ class CIFAR10Pair(CIFAR10):
         im_2 = self.transform(img)
         
         # todo: 观察到最后的数字后，假设最终是x，那先跑一个“cnt>x则assert False”发现不出错，再跑一个置flag=1（这样多进程的其他进程不会置1）and cnt==x则assert False发现assert了（说明多进程的其他进程真的也刚好访问了x次！）
+        final = 2
+        if self.cnt > final:
+            raise IndexError
+        # if self.flag == 0 and self.cnt == final:
+        #     raise AttributeError
         
         return im_1, im_2
 
@@ -506,6 +512,7 @@ def pretrain_or_linear_eval(
         
         start_t = time.time()
         tr_loss = train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_iters, tr_itrt, model, params, optimizer, initial_op_state, avgs, swap_args)
+        tr_set.flag = 1
         for rk in range(dist.world_size):
             if rk == dist.rank:
                 master_echo(True, f'[rk{dist.rank:02d}] cnt={tr_set.cnt}')
