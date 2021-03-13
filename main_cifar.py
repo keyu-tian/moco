@@ -843,10 +843,14 @@ def sanity_check(current_state, initial_state):
 
 def select_itrts(dist: TorchDistManager, model: ModelMoCo, tr_iters: int, candidate_itrt: Iterator[DataLoader]):
     master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] begin')
-    
+
     x = torch.tensor([dist.rank], dtype=torch.float)
-    dist.broadcast(x, 0)
+    dist.allreduce(x)
     master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] x={x[0].item()}')
+
+    y = torch.tensor([dist.rank], dtype=torch.float)
+    dist.broadcast(y, 11)
+    master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] y={y[0].item()}')
     
     
     for _, param in model.state_dict().items():
