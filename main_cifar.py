@@ -201,10 +201,10 @@ def main_process(args, dist: TorchDistManager):
     # 11 : coljit_RRC baseline
     trans = []
     for color_tr, name in [
-        (Color(Color.RANGES[7]), 'colors'),
+        (Color(Color.RANGES[6]), 'colors'),
         (Contrast(Contrast.RANGES[5]), 'contra'),
         (Brightness(Brightness.RANGES[3]), 'bright'),
-        (transforms.RandomApply([Equalize()], 0.5), 'equali'),
+        (transforms.RandomApply([transforms.RandomChoice([Equalize(), AutoContrast()])], 2/3), 'equatc'),
         (transforms.Compose([transforms.RandomApply([AutoContrast()], 0.5), Sharpness(Sharpness.RANGES[7])]), 'atcshp'),
         (transforms.ColorJitter(0.4, 0.4, 0.4, 0.1), 'coljit'),
     ]:
