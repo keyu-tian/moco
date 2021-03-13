@@ -9,7 +9,7 @@ def dfs(cwd, upd_fn):
             dfs(path, upd_fn)
         else:
             # if name == 'cfg.yaml' or name.endswith('.sh'):
-            if name == 'vis.sh':
+            if name == 'run.sh':
                 upd_fn(path)
 
 
@@ -20,8 +20,8 @@ if __name__ == '__main__':
         with open(path, 'w', encoding='utf-8') as fp:
             fp.write(
                 ctt.replace(
-                    'if  [ ! -n "$1" ]; then echo "dirname missing"',
-                    'if  [ ! -n "$1" ]; then echo "dirname missing" && exit ',
+                    '-n12',
+                    '-n16',
                 )
             )
     
