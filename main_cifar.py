@@ -7,7 +7,7 @@ from datetime import datetime
 import random
 from logging import Logger
 from pprint import pformat as pf
-from typing import NamedTuple, Optional, List, Union, Iterator
+from typing import NamedTuple, Optional, List, Union, Iterator, Tuple
 
 import colorama
 import torch
@@ -60,7 +60,7 @@ parser.add_argument('--schedule', default=[120, 160], nargs='*', type=int, help=
 parser.add_argument('--warmup', action='store_true', help='use warming up')
 parser.add_argument('--wd', default=5e-4, type=float, metavar='W', help='weight decay')
 parser.add_argument('--nowd', action='store_true', help='no wd for params of bn and bias')
-parser.add_argument('--grad_clip', default='5', type=str, help='max grad norm')
+parser.add_argument('--grad_clip', default='4', type=str, help='max grad norm')
 
 # linear evaluation
 parser.add_argument('--eval_epochs', default=100, type=int, metavar='N', help='number of total epochs to run')
@@ -72,7 +72,7 @@ parser.add_argument('--eval_schedule', default=[60, 80], nargs='*', type=int, he
 parser.add_argument('--eval_warmup', action='store_true', help='use warming up')
 parser.add_argument('--eval_wd', default=0., type=float, metavar='W', help='weight decay')
 parser.add_argument('--eval_nowd', action='store_true', help='no wd for params of bn and bias')
-parser.add_argument('--eval_grad_clip', default='5', type=str, help='max grad norm')
+parser.add_argument('--eval_grad_clip', default='4', type=str, help='max grad norm')
 
 # data
 parser.add_argument('--dataset', default='cifar10', choices=['cifar10', 'cifar100', 'imagenet'])
@@ -210,7 +210,7 @@ def main_process(args, dist: TorchDistManager):
         (transforms.ColorJitter(0.4, 0.4, 0.4, 0.1), 'coljit'),
     ]:
         ls = [transforms.RandomApply([color_tr], p=0.8), transforms.RandomGrayscale(p=0.2)]
-        if name != 'coljit':
+        if name not in {'equatc', 'coljit'}:
             ls.append(transforms.RandomApply([Sharpness(Sharpness.RANGES[4])], p=0.5))
         tr = transforms.Compose(ls)
         t = compose(
@@ -277,12 +277,22 @@ def main_process(args, dist: TorchDistManager):
             pret_iters, pret_itrt = len(pret_loader), iter(pret_loader)
             lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {ds_root}')
             
-            # todo: transform=trans[dist.rank]改一下，不应该是这样的
-            swap_data = CIFAR10Pair(root=ds_root, train=True, transform=trans[dist.rank][0], download=False)
-            swap_loader = DataLoader(
-                swap_data, batch_sampler=InfiniteBatchSampler(len(swap_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),
-                **data_kw)
-            swap_iters, swap_itrt = len(swap_loader), iter(swap_loader)
+            if args.adversarial:
+                swap_itrt = []
+                for t, name in trans:
+                    ds = CIFAR10Pair(root=ds_root, train=True, transform=t, download=False)
+                    ld = DataLoader(
+                        ds, batch_sampler=InfiniteBatchSampler(len(ds), args.batch_size, shuffle=True, drop_last=False, fill_last=False, seed=0),
+                        **data_kw)
+                    swap_iters = len(ld)
+                    swap_itrt.append((iter(ld), name))
+                swap_itrt = (tuple(swap_itrt), [0] * dist.world_size)
+            else:
+                swap_data = CIFAR10Pair(root=ds_root, train=True, transform=swap_transform, download=False)
+                swap_loader = DataLoader(
+                    swap_data, batch_sampler=InfiniteBatchSampler(len(swap_data), args.batch_size, shuffle=True, drop_last=True, fill_last=False, seed=0),
+                    **data_kw)
+                swap_iters, swap_itrt = len(swap_loader), iter(swap_loader)
             lg.info(f'=> [main]: prepare swap_data (iters={swap_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
             assert swap_iters == pret_iters
             
@@ -593,8 +603,12 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         sw_inv = int(sw_inv)
         model.train()
     else:
-        sw_freq, sw_itrt, sw_inv = None, None, None
+        sw_freq, sw_itrt, sw_inv, reset_op = None, None, None, None
         model.eval()
+    adversarial = isinstance(sw_itrt, tuple)
+    if adversarial:
+        sw_itrt, counts = sw_itrt
+        assert isinstance(sw_itrt[0], tuple)
     
     tr_loss_avg, tr_acc1_avg, tr_acc5_avg = avgs
     log_iters = tr_iters // meta.log_freq
@@ -605,15 +619,32 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
     
     tot_loss, tot_num = 0.0, 0
     last_t = time.time()
+    last_itrt = None
     for it in range(tr_iters):
         cur_iter = it + epoch * tr_iters
         max_iter = meta.epochs * tr_iters
         
         if is_pretrain:
-            itrt = tr_itrt if (cur_iter // sw_freq & 1) == sw_inv else sw_itrt
-            if reset_op and cur_iter > 1 and (((cur_iter-1) // sw_freq & 1) != (cur_iter // sw_freq & 1)):
-                op.load_state_dict(initial_op_state)
-                master_echo(dist.is_master(), f'reset op, cur_iter={cur_iter} ({round((cur_iter+1) // tr_iters, 2)} ep)')
+            if adversarial:
+                if cur_iter < 4 * sw_freq:
+                    itrt, name = random.choice(sw_itrt)
+                elif cur_iter % sw_freq == 0:
+                    names = [tu[1] for tu in sw_itrt]
+                    idx = select_itrts(dist, model, tr_iters, sw_itrt)
+                    itrt, name = sw_itrt[idx]
+                    counts[idx] += 1
+                    lg.info(f'[adver.] transform={name}')
+                    g_tb_lg.add_scalars(f'{prefix}/trans', {n: c for n, c in zip(names, counts)}, round(cur_iter / tr_iters))
+                    last_itrt = itrt
+                    if reset_op:
+                        op.load_state_dict(initial_op_state)
+                else:
+                    itrt = last_itrt
+            else:
+                itrt = tr_itrt if (cur_iter // sw_freq & 1) == sw_inv else sw_itrt
+                if reset_op and cur_iter > 1 and (((cur_iter-1) // sw_freq & 1) != (cur_iter // sw_freq & 1)):
+                    op.load_state_dict(initial_op_state)
+                    # master_echo(dist.is_master(), f'reset op, cur_iter={cur_iter} ({round((cur_iter+1) // tr_iters, 2)} ep)')
             # todo: if it is adv., plz change this: every iter should keep the same pace with each other, in other words, they should next(.) together
             # todo: 不必要，如果是开eval模式并且不改queue buffer，然后衡量整个dataest的loss，就和顺序无关了，只要遍历完dataset就行了（但这样需要一个不drop也不fill last的dataloader）
             # todo: 记得每次选完之后（每5epoch选1个），log出每个trans累计被选中的次数之和
@@ -678,6 +709,10 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
                 f'cl[{clip_t - back_t:.3f}], op[{step_t - clip_t:.3f}]'
             )
         
+        if cur_iter == sw_freq:
+            master_echo(True, f'[rk{dist.rank:2d}] barrier test')
+            dist.barrier()
+            
         last_t = time.time()
     
     return tot_loss / tot_num
@@ -781,6 +816,21 @@ def sanity_check(current_state, initial_state):
         t1: torch.Tensor
         t2: torch.Tensor
         assert (t1 == t2).all(), f'{key} changed in the linear evaluation'
+
+
+def select_itrts(dist: TorchDistManager, model: ModelMoCo, train_iters: int, itrts: Tuple[Tuple[DataLoader, str]]):
+    model.eval()
+    with torch.no_grad():
+        itrt, _ = itrts[dist.rank]
+        tot_loss, tot_num = 0., 0
+        for it in range(train_iters):
+            data1, data2 = next(itrt)
+            bs = data1.shape[0]
+            tot_loss += model(data1.cuda(non_blocking=True), data2.cuda(non_blocking=True), training=False).item() * bs
+        losses = dist.dist_fmt_vals(tot_loss / 50000, None)
+        idx = losses.argmax().item()
+    model.train()
+    return idx
 
 
 if __name__ == '__main__':

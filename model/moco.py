@@ -21,7 +21,7 @@ class ModelMoCo(nn.Module):
         # create the encoders
         # todo: torch_ddp
         assert not torch_ddp
-        bn_splits = 1 if sbn else 8
+        bn_splits = 1 if sbn else 8 # todo: torch_ddp
         norm_layer = partial(SplitBatchNorm, num_splits=bn_splits) if bn_splits > 1 else nn.BatchNorm2d
         self.encoder_q = model_entry(model_name=arch, num_classes=dim, norm_layer=norm_layer)
         self.encoder_k = model_entry(model_name=arch, num_classes=dim, norm_layer=norm_layer)
@@ -35,10 +35,8 @@ class ModelMoCo(nn.Module):
             init_params(self.encoder_q, output=lg.info)
         
         for param_q, param_k in zip(self.encoder_q.parameters(), self.encoder_k.parameters()):
-            param_k.data.copy_(param_q.data)  # initialize
-            # param_k.requires_grad = False  # not update by gradient
-            param_k.detach_()
-            # todo: detach_() is ok?
+            param_k.data.copy_(param_q.data)    # initialize
+            param_k.detach_()                   # not update by gradient
         
         # create the queue
         self.register_buffer("queue", torch.randn(dim, K))
@@ -123,7 +121,7 @@ class ModelMoCo(nn.Module):
         
         return loss, q, k
     
-    def forward(self, im1, im2):
+    def forward(self, im1, im2, training=True):
         """
         Input:
             im_q: a batch of query images
@@ -133,8 +131,9 @@ class ModelMoCo(nn.Module):
         """
         
         # update the key encoder
-        with torch.no_grad():  # no gradient to keys
-            self._momentum_update_key_encoder()
+        if training:
+            with torch.no_grad():  # no gradient to keys
+                self._momentum_update_key_encoder()
         
         # compute loss
         if self.symmetric:  # asymmetric loss
@@ -145,7 +144,8 @@ class ModelMoCo(nn.Module):
         else:  # asymmetric loss
             loss, q, k = self.contrastive_loss(im1, im2)
         
-        self._dequeue_and_enqueue(k)
+        if training:
+            self._dequeue_and_enqueue(k)
         
         return loss
 
