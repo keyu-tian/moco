@@ -54,17 +54,17 @@ if __name__ == '__main__':
         transforms.Normalize(MEAN, STD)
     ])
     aug1_trans = transforms.Compose([
-        # transforms.RandomCrop(32, padding=4, padding_mode='edge'),
+        transforms.RandomCrop(32, padding=4, padding_mode='edge'),
         
         # Color(Color.RANGES[6]),
         # Contrast(Contrast.RANGES[6]),
         # Brightness(Brightness.RANGES[5]),
         # transforms.RandomApply([Equalize()], 0.5),
         # transforms.Compose([transforms.RandomApply([AutoContrast()], 0.5), Sharpness(Sharpness.RANGES[7])]),
-        Color(Color.RANGES[7]),
+        # Color(Color.RANGES[7]),
         
         transforms.ToTensor(),
-        # RandomPerspective(RandomPerspective.RANGES[5]),
+        RandomPerspective(RandomPerspective.RANGES[4]),
         transforms.Normalize(MEAN, STD)
     ])
     aug2_trans = transforms.Compose([

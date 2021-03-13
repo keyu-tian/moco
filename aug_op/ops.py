@@ -205,6 +205,8 @@ class RandomPerspective(object):
         
         mags = [self.magnitude * t for t in random.choices([-1, 0, 1], weights=[1, 4, 1], k=9)]
         rot, sc_x, sc_y, sh_x, sh_y, tr_x, tr_y, ps_x, ps_y = mags
+        tr_x, tr_y = tr_x * 1.6, tr_y * 1.6
+        sc_x, sc_y = sc_x * 1.6, sc_y * 1.6
         
         mats = []
         if rot != 0:
