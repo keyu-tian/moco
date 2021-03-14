@@ -157,7 +157,7 @@ def main_process(args, dist: TorchDistManager):
     
     if args.el_epochs_base is not None:
         assert args.early ^ args.late
-        ep = args.el_epochs_base + dist.rank // (dist.world_size // 8) * args.el_epochs_inc
+        ep = args.el_epochs_base + dist.rank // (dist.world_size // 4) * args.el_epochs_inc
         args.swap_epochs = ep if args.early else (args.epochs - ep)
         args.swap_inv = args.late
         args.swap_once = True
