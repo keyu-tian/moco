@@ -84,13 +84,19 @@ parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperatur
 
 # explore: swapping
 parser.add_argument('--pret_verbose', action='store_true')
-parser.add_argument('--swap_epochs', default=None, type=float)
+parser.add_argument('--swap_epochs', default=None, type=int)
+parser.add_argument('--swap_idx', default=None, type=int)  # todo: 选equ_per+cojrrc
 # parser.add_argument('--swap_iters', default=None, type=int)
 parser.add_argument('--swap_inv', action='store_true')
 parser.add_argument('--reset_op', action='store_true')
 
+parser.add_argument('--el_epochs_base', default=None, type=int)
+parser.add_argument('--el_epochs_inc', default=None, type=int)
+parser.add_argument('--early', action='store_true')
+parser.add_argument('--late', action='store_true')
+
 # explore: adversarial
-parser.add_argument('--adv_epochs', default=None, type=float)
+parser.add_argument('--adv_epochs', default=None, type=int)
 # parser.add_argument('--adv_iters', default=None, type=int)
 
 
@@ -148,6 +154,15 @@ def main_process(args, dist: TorchDistManager):
         'cifar100': 100,
         'imagenet': 1000,
     }[args.dataset]
+    
+    if args.el_epochs_base is not None:
+        assert args.early ^ args.late
+        ep = args.el_epochs_base + dist.rank // 2 * args.el_epochs_inc
+        args.swap_epochs = ep if args.early else (args.epochs - ep)
+        args.swap_inv = args.late
+        args.swap_once = True
+    else:
+        args.swap_once = False
     
     args.swapping = args.swap_epochs is not None
     args.adversarial = args.adv_epochs is not None
@@ -281,13 +296,20 @@ def main_process(args, dist: TorchDistManager):
             pret_ld = DataLoader(pret_data, batch_size=args.batch_size, shuffle=True, drop_last=True, **data_kw)
             pret_iters = len(pret_ld)
             lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {ds_root}')
-
-            swap_adv_data = CIFAR10Pair(root=ds_root, train=True, transform=trans[dist.rank][0] if args.adversarial else swap_transform, download=False)
+            
+            if args.adversarial:
+                sw_t = trans[dist.rank][0]
+            elif args.swap_idx is not None:
+                sw_t = trans[args.swap_idx][0]
+            else:
+                sw_t = swap_transform
+            
+            swap_adv_data = CIFAR10Pair(root=ds_root, train=True, transform=sw_t, download=False)
             swap_adv_ld = DataLoader(swap_adv_data, batch_size=args.batch_size, shuffle=True, drop_last=True, **data_kw)
             swap_adv_iters = len(swap_adv_ld)
             lg.info(f'=> [main]: prepare swap/adv_data (iters={swap_adv_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
             assert swap_adv_iters == pret_iters
-            swap_args = (args.swap_epochs, swap_adv_ld, args.swap_inv, args.reset_op) if args.swapping else None
+            swap_args = (args.swap_epochs, swap_adv_ld, args.swap_inv, args.swap_once, args.reset_op) if args.swapping else None
             
             if args.adversarial:
                 bs = args.batch_size
@@ -295,8 +317,9 @@ def main_process(args, dist: TorchDistManager):
                 def get_adv_ld(tr):
                     nonlocal ds_root, bs, data_kw
                     ds = CIFAR10Pair(root=ds_root, train=True, transform=tr, download=False)
-                    return DataLoader(ds, batch_size=bs, shuffle=True, drop_last=True, **data_kw)       # todo: 本来这里不应该drop last的，因为要用整50000张衡量才公平，但是考虑到代码方便（因为train函数里的loader可能是train也可能是sw，他们应该是一样的都drop_last）
-
+                    return DataLoader(ds, batch_size=bs, shuffle=True, drop_last=True,
+                                      **data_kw)  # todo: 本来这里不应该drop last的，因为要用整50000张衡量才公平，但是考虑到代码方便（因为train函数里的loader可能是train也可能是sw，他们应该是一样的都drop_last）
+                
                 rand_data = CIFAR10Pair(root=ds_root, train=True, transform=transforms.RandomChoice([deepcopy(tu[0]) for tu in trans]), download=False)
                 rand_ld = DataLoader(rand_data, batch_size=args.batch_size, shuffle=True, drop_last=True, **data_kw)
                 rand_iters = len(rand_ld)
@@ -306,7 +329,7 @@ def main_process(args, dist: TorchDistManager):
                 adv_args = (args.adv_epochs, rand_ld, swap_adv_ld, get_adv_ld, trans, args.reset_op)
             else:
                 adv_args = None
-
+            
             knn_data = CIFAR10(root=ds_root, train=True, transform=test_transform, download=False)
             knn_ld = DataLoader(knn_data, batch_size=args.batch_size * 2, shuffle=False, drop_last=False, **data_kw)
             knn_iters = len(knn_ld)
@@ -323,14 +346,14 @@ def main_process(args, dist: TorchDistManager):
             lg.info(f'=> [main]: prepare eval_data (iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
             
             master_echo(True, f'    finished!', '36', tail='')
-
+            
             if args.swap_epochs is not None:
                 master_echo(dist.is_master(), f'[explore.swap]: args.swap_epochs={args.swap_epochs}')
             if args.adv_epochs is not None:
                 master_echo(dist.is_master(), f'[explore.swap]: args.adv_epochs ={args.adv_epochs}')
             
             lg.info(f'=> [main]: args:\n{pf(vars(args))}\n')
-            
+        
         dist.barrier()
     
     lg.info(
@@ -436,9 +459,10 @@ def pretrain_or_linear_eval(
     swapping, adversarial = swap_args is not None, adv_args is not None
     if adversarial:
         counts = {tu[1]: 0 for tu in adv_args[-2]}
-        last_ld, last_ld_idx = None, 0
+        last_ld, last_adv_ld_idx = None, 0
     else:
-        last_ld_idx = -1
+        last_adv_ld_idx = -1
+    last_sw_ld_idx = 0
     
     if not meta.coslr:
         sc = meta.schedule
@@ -469,8 +493,8 @@ def pretrain_or_linear_eval(
         best_test_acc1 = ckpt['best_test_acc1']
         [topk_acc1s.push_q(x) for x in ckpt['topk_acc1s']]
         if ckpt['adv_last_ld_idx'] != -1 and adv_args is not None:
-            last_ld_idx = ckpt['adv_last_ld_idx']
-            last_ld = adv_args[-3](adv_args[-2][last_ld_idx][0])
+            last_adv_ld_idx = ckpt['adv_last_ld_idx']
+            last_ld = adv_args[-3](adv_args[-2][last_adv_ld_idx][0])
         
         epoch_start = ckpt['epoch'] + 1
         lg.info(f'=> [{prefix}]: ckpt loaded from {meta.resume_ckpt}, last_ep={epoch_start - 1}, ep_start={epoch_start}')
@@ -518,15 +542,21 @@ def pretrain_or_linear_eval(
             em_t = time.time()
             torch.cuda.empty_cache()
             master_echo(dist.is_master(), f' @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s ', '36')
-
+        
         loader = tr_ld
         if is_pretrain:
             if swapping:
-                sw_freq, sw_ld, sw_inv, reset_op = swap_args
-                sw_inv = int(sw_inv)
-                loader = tr_ld if (epoch // sw_freq & 1) == sw_inv else sw_ld
-                if reset_op and epoch > 1 and (((epoch - 1) // sw_freq & 1) != (epoch // sw_freq & 1)):
-                    optimizer.load_state_dict(initial_op_state)
+                sw_freq, sw_ld, sw_inv, sw_once, reset_op = swap_args
+                loaders = (sw_ld, tr_ld) if sw_inv else (tr_ld, sw_ld)
+                if sw_once and epoch >= sw_freq:  # todo: save what for resuming?
+                    idx = 1
+                else:
+                    idx = (epoch // sw_freq) & 1
+                if last_sw_ld_idx != idx:
+                    last_sw_ld_idx = idx
+                    if reset_op:
+                        optimizer.load_state_dict(initial_op_state)
+                loader = loaders[idx]
             
             elif adversarial:
                 ad_freq, rand_ld, candidate_ld, get_adv_ld, trans, reset_op = adv_args
@@ -536,13 +566,13 @@ def pretrain_or_linear_eval(
                     idx = select_loader(dist, model, tr_iters, candidate_ld)
                     tr, name = trans[idx]
                     last_ld = loader = get_adv_ld(tr)
-                    last_ld_idx = idx
+                    last_adv_ld_idx = idx
                     lg.info(f'[adver.] transform={name}')
                     master_echo(dist.is_master(), f'[adver.] transform={name}')
-            
+                    
                     counts[name] += 1
                     g_tb_lg.add_scalars(f'{prefix}/adv_trans', counts, epoch)
-            
+                    
                     if reset_op:
                         optimizer.load_state_dict(initial_op_state)
                 else:
@@ -567,7 +597,7 @@ def pretrain_or_linear_eval(
         state_dict = {
             'arch': meta.arch, 'epoch': epoch, 'model': model.state_dict(), 'optimizer': optimizer.state_dict(),
             'topk_acc1s': list(topk_acc1s),
-            'adv_last_ld_idx': last_ld_idx
+            'adv_last_ld_idx': last_adv_ld_idx
         }
         if best_updated:
             best_test_acc1 = test_acc1
@@ -597,7 +627,7 @@ def pretrain_or_linear_eval(
                 sanity_check(model.state_dict(), initial_model_state)
         if epoch % 5 == 0 or epoch == meta.epochs - 1:
             master_echo(dist.is_master(), f'curr_best={best_test_acc1:5.2f}')
-
+    
     topk_test_acc1 = sum(topk_acc1s) / len(topk_acc1s)
     dt = time.time() - loop_start_t
     if not meta.torch_ddp:
@@ -648,7 +678,7 @@ def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch,
         model.train()
     else:
         model.eval()
-        
+    
     tr_loss_avg, tr_acc1_avg, tr_acc5_avg = avgs
     log_iters = tr_iters // meta.log_freq
     while log_iters > 1:
@@ -825,11 +855,11 @@ def sanity_check(current_state, initial_state):
 
 def select_loader(dist: TorchDistManager, model: ModelMoCo, tr_iters: int, candidate_ld: DataLoader):
     # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] begin')
-
+    
     # x = torch.tensor([dist.rank], dtype=torch.float)
     # dist.allreduce(x)
     # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] x={x[0].item()}')
-
+    
     # y = torch.tensor([dist.rank], dtype=torch.float)
     # dist.broadcast(y, dist.world_size - 1)
     # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] y={y[0].item()}')
@@ -839,7 +869,7 @@ def select_loader(dist: TorchDistManager, model: ModelMoCo, tr_iters: int, candi
         dist.broadcast(param.data, 0)
     master_echo(dist.is_master(), f'    finished!', '36', tail='')
     # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] broadcast')
-
+    
     model.eval()
     with torch.no_grad():
         tot_loss, tot_num = 0., 0
