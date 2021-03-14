@@ -27,6 +27,7 @@ python -u -m main_cifar \
 --dataset=cifar10 \
 --num_workers=4 \
 --pin_mem \
+--pret_verbose \
 --el_epochs_base=50 \
 --el_epochs_inc=50 \
 --late \

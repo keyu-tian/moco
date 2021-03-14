@@ -27,12 +27,13 @@ python -u -m main_cifar \
 --dataset=cifar10 \
 --num_workers=4 \
 --pin_mem \
---pret_verbose
---el_epochs_base=50 \
+--pret_verbose \
+--swap_idx=0 \
+--el_epochs_base=0 \
 --el_epochs_inc=50 \
---late \
-#50  50: 50,  100, 150, 200
-#250 50: 250, 300, 350, 400
+--early \
+#0   50: 0,   50,  100, 150
+#200 50: 200, 250, 300, 350
 #--reset_op \
 #--sbn \
 #--warmup
