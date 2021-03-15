@@ -394,13 +394,20 @@ def main_process(args, dist: TorchDistManager):
     if args.eval_resume_ckpt is None:
         if not args.pret_verbose and not dist.is_master():
             l_tb_lg._verbose = False
-        pretrain_or_linear_eval(
+        topk_accs = pretrain_or_linear_eval(
             (knn_iters, knn_ld, args.knn_k, args.knn_t, knn_ld.dataset.targets), swap_args, adv_args, args.num_classes, ExpMeta(
                 args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.resume_ckpt,
                 args.epochs, args.lr, args.wd, args.nowd, args.coslr, args.schedule, args.warmup, args.grad_clip
             ),
             lg, g_tb_lg, l_tb_lg, dist, pretrain_model, pret_iters, pret_ld, test_iters, test_ld
         )
+
+        broadcasting = not args.swap_once
+        if broadcasting: # not the early-late exp
+            src_rank = topk_accs.argmax().item()
+            for _, param in pretrain_model.state_dict().items():
+                dist.broadcast(param.data, src_rank)
+        
         d = pretrain_model.encoder_q.state_dict()
         ks = deepcopy(list(d.keys()))
         for k in ks:
@@ -662,12 +669,7 @@ def pretrain_or_linear_eval(
             strs = ''.join([f'# {l}\n' for l in lines])
             with open(run_shell_name, 'a') as fp:
                 print(f'\n# {prefix} {meta.exp_dirname}:\n{strs}', file=fp)
-        
-        if is_pretrain:  # sync parameters
-            src_rank = topk_accs.argmax().item()
-            for _, param in model.state_dict().items():
-                dist.broadcast(param.data, src_rank)
-    
+        return topk_accs
     else:
         assert False
 
