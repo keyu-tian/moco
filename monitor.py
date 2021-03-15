@@ -87,7 +87,7 @@ def main():
     
     ava_port = get_ava_port()
     print(colorama.Fore.LIGHTBLUE_EX + f'[monitor] found an ava port={ava_port}')
-    cmd = f'tensorboard --logdir . --port {ava_port} --bind_all'
+    cmd = f'tensorboard --logdir {exp_dir_name} --port {ava_port} --bind_all'
     sp = subprocess.Popen(cmd, shell=True, stderr=subprocess.PIPE, bufsize=-1)
     tb_ip_port = f'{socket.gethostbyname(socket.gethostname())}:{ava_port}'
     
