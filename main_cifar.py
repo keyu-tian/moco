@@ -546,6 +546,7 @@ def pretrain_or_linear_eval(
     tr_acc1_avg = AverageMeter(tr_iters)
     tr_acc5_avg = AverageMeter(tr_iters)
     avgs = (tr_loss_avg, tr_acc1_avg, tr_acc5_avg)
+    tr_loss_mov_avg = 0
     for epoch in range(epoch_start, meta.epochs):
         ep_str = f'%{len(str(meta.epochs))}d'
         ep_str %= epoch + 1
@@ -590,7 +591,8 @@ def pretrain_or_linear_eval(
                     loader = last_ld
         
         start_t = time.time()
-        tr_loss = train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_iters, loader, model, params, optimizer, initial_op_state, avgs)
+        tr_loss: float = train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_iters, loader, model, params, optimizer, initial_op_state, avgs)
+        tr_loss_mov_avg = tr_loss if tr_loss_mov_avg == 0 else tr_loss_mov_avg * 0.99 + tr_loss * 0.01
         train_t = time.time()
         
         if is_pretrain:
@@ -645,12 +647,14 @@ def pretrain_or_linear_eval(
         topk_accs = dist.dist_fmt_vals(topk_test_acc1, None)
         best_accs = dist.dist_fmt_vals(best_test_acc1, None)
         best_acc5s = dist.dist_fmt_vals(best_test_acc5, None)
+        tr_loss_mov_avgs = dist.dist_fmt_vals(tr_loss_mov_avg, None)
         [g_tb_lg.add_scalar(f'{prefix}/{test_acc_name.replace("acc", "best")}1', best_accs.mean().item(), e) for e in [epoch_start, meta.epochs]]
         perform_dict = pf({
             des: f'topk={ta.item():.3f}, best={ba.item():.3f}'
             for des, ta, ba in zip(meta.descs, topk_accs, best_accs)
         })
         res_str = (
+            f' avg tr losses  {str(tr_loss_mov_avgs).replace(chr(10), " ")}'
             f' best     acc5s @ (max={best_acc5s.max():.3f}, mean={best_acc5s.mean():.3f}, std={best_acc5s.std():.3f}) {str(best_acc5s).replace(chr(10), " ")})\n'
             f' mean-top acc1s @ (max={topk_accs.max():.3f}, mean={topk_accs.mean():.3f}, std={topk_accs.std():.3f}) {str(topk_accs).replace(chr(10), " ")})\n'
             f' best     acc1s @ (max={best_accs.max():.3f}, mean={best_accs.mean():.3f}, std={best_accs.std():.3f}) {str(best_accs).replace(chr(10), " ")})'
@@ -678,8 +682,8 @@ def pretrain_or_linear_eval(
         assert False
 
 
-# pretrain for one epoch
-def train(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_iters, tr_ld, model, params, op, initial_op_state, avgs):
+# one epoch
+def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_iters, tr_ld, model, params, op, initial_op_state, avgs):
     if is_pretrain:
         model.train()
     else:
