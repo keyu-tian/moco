@@ -85,7 +85,7 @@ parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperatur
 # explore: swapping
 parser.add_argument('--pret_verbose', action='store_true')
 parser.add_argument('--swap_epochs', default=None, type=int)
-parser.add_argument('--swap_idx', default=None, type=int)  # todo: 选equ_per+cojrrc
+parser.add_argument('--swap_idx', default=None, type=str)  # todo: 选equ_per+cojrrc
 # parser.add_argument('--swap_iters', default=None, type=int)
 parser.add_argument('--swap_inv', action='store_true')
 parser.add_argument('--reset_op', action='store_true')
@@ -300,7 +300,11 @@ def main_process(args, dist: TorchDistManager):
             if args.adversarial:
                 sw_t = trans[dist.rank][0]
             elif args.swap_idx is not None:
-                sw_t = trans[args.swap_idx][0]
+                if args.swap_idx == 'rank':
+                    folds = dist.world_size // 8
+                    sw_t = trans[dist.rank // folds][0]
+                else:
+                    sw_t = trans[int(args.swap_idx)][0]
             else:
                 sw_t = swap_transform
             
