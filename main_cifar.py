@@ -1,26 +1,29 @@
 import argparse
 import json
 import os
+import random
 import time
 from copy import deepcopy
 from datetime import datetime
 from logging import Logger
 from pprint import pformat as pf
-from typing import NamedTuple, Optional, List, Union, Iterator, Tuple
+from typing import NamedTuple, Optional, List, Union
 
 import colorama
+import numpy as np
 import torch
+import torch.nn.functional as F
+from PIL import Image
 from rsa.prime import is_prime
 from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import CIFAR10
-from torchvision.transforms import Compose
+from torchvision.transforms import functional as VF
 
-from aug_op.ops import *
 from meta import seatable_fname, run_shell_name
 from model.moco import ModelMoCo
-from utils.data import InfiniteBatchSampler, dataset_metas
+from utils.data import dataset_metas
 from utils.dist import TorchDistManager
 from utils.file import create_files
 from utils.misc import time_str, filter_params, set_seed, AverageMeter, TopKHeap, adjust_learning_rate, accuracy, master_echo
@@ -84,14 +87,36 @@ parser.add_argument('--knn_k', default=200, type=int, help='k in kNN monitor')
 parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperature in kNN monitor; could be different with moco-t')
 
 
+class CIFAR10PairTransform(object):
+    def __init__(self, rrc_params_path, normalize, interpolation=Image.BILINEAR):
+        self.rrc_params = tuple(tuple(p) for p in np.load(rrc_params_path).tolist())
+        self.interpolation = interpolation
+        self.size = 32
+        
+        self.transforms = transforms.Compose([
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
+            transforms.RandomGrayscale(p=0.2),
+            transforms.ToTensor(),
+            normalize
+        ])
+        
+        self.normalize = normalize
+    
+    def __call__(self, pil_img):
+        Ai, Aj, Ah, Aw, Bi, Bj, Bh, Bw = self.rrc_params[random.randrange(len(self.rrc_params))]
+        im1 = VF.resized_crop(pil_img, Ai, Aj, Ah, Aw, self.size, self.interpolation)
+        im2 = VF.resized_crop(pil_img, Bi, Bj, Bh, Bw, self.size, self.interpolation)
+        im1, im2 = self.transforms(im1), self.transforms(im2)
+        return im1, im2
+
+
 class CIFAR10Pair(CIFAR10):
     def __getitem__(self, index):
-        img = self.data[index]
-        img = Image.fromarray(img)
-        im_1 = self.transform(img)
-        im_2 = self.transform(img)
-        
-        return im_1, im_2
+        pil_img = self.data[index]          # ignore self.targets
+        pil_img = Image.fromarray(pil_img)
+        im1, im2 = self.transform(pil_img)  # must be a CIFAR10PairTransform
+        return im1, im2
 
 
 def main():
@@ -168,15 +193,11 @@ def main_process(args, dist: TorchDistManager):
         v_ep=args.eval_epochs, v_bs=args.eval_batch_size, v_cos=args.eval_coslr, v_wp=args.eval_warmup, v_nowd=args.eval_nowd,
         pr=0, rem=0, beg_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     )
-    
-    pret_transform = transforms.Compose([
-        transforms.RandomResizedCrop(32),
-        transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
-        transforms.RandomGrayscale(p=0.2),
-        transforms.ToTensor(),
-        transforms.Normalize(*dataset_meta.mean_std, inplace=True),
-    ])
+
+    if args.ds_root is None or args.ds_root == 'None':
+        args.ds_root = os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
+        
+    pret_transform = CIFAR10PairTransform(os.path.join(os.path.expanduser('~'), f'rrc_params', f'{args.dataset}.npy'), transforms.Normalize(*dataset_meta.mean_std, inplace=True))
     test_transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(*dataset_meta.mean_std, inplace=True),
@@ -190,8 +211,6 @@ def main_process(args, dist: TorchDistManager):
         transforms.Normalize(*dataset_meta.mean_std, inplace=True),
     ])
     
-    if args.ds_root is None or args.ds_root == 'None':
-        args.ds_root = os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
     # ds_choice = torch.randperm(8)[0]
     # dist.broadcast(ds_choice, 0)
     # ds_choice = ds_choice.item()
@@ -206,8 +225,6 @@ def main_process(args, dist: TorchDistManager):
         if rk == dist.rank:
             master_echo(True, f'{time_str()}[rk{dist.rank:2d}] construct dataloaders... ', tail='\\c')
             
-            print(args.ds_root)
-            args.ds_root = os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
             # todo: imagenet 用什么 loader啊？参考下moco原代码
             pret_data = CIFAR10Pair(root=args.ds_root, train=True, transform=pret_transform, download=False)
             pret_ld = DataLoader(pret_data, batch_size=args.batch_size, shuffle=True, drop_last=True, **data_kw)
@@ -259,7 +276,7 @@ def main_process(args, dist: TorchDistManager):
     if args.eval_resume_ckpt is None:
         if not args.pret_verbose and not dist.is_master():
             l_tb_lg._verbose = False
-        pret_topk_accs = pretrain_or_linear_eval(
+        pret_res_str = pretrain_or_linear_eval(
             (knn_iters, knn_ld, args.knn_k, args.knn_t, knn_ld.dataset.targets), args.num_classes, ExpMeta(
                 args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.resume_ckpt,
                 args.epochs, args.lr, args.wd, args.nowd, args.coslr, args.schedule, args.warmup, args.grad_clip
@@ -285,7 +302,7 @@ def main_process(args, dist: TorchDistManager):
     
     l_tb_lg._verbose = True
     pretrain_or_linear_eval(
-        None, args.num_classes, ExpMeta(
+        pret_res_str, args.num_classes, ExpMeta(
             args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.eval_resume_ckpt,
             args.eval_epochs, args.eval_lr, args.eval_wd, args.eval_nowd, args.eval_coslr, args.eval_schedule, args.eval_warmup, args.eval_grad_clip
         ),
@@ -319,13 +336,13 @@ class ExpMeta(NamedTuple):
 
 
 def pretrain_or_linear_eval(
-        pretrain_knn_args,
+        pretrain_knn_args_or_pret_res_str,
         num_classes: int,
         meta: ExpMeta, lg: Logger, g_tb_lg: SummaryWriter, l_tb_lg: SummaryWriter,
         dist: TorchDistManager, model: Union[ModelMoCo, torch.nn.Module],
         tr_iters: int, tr_ld: DataLoader, te_iters: int, te_ld: DataLoader,
 ):
-    is_pretrain = pretrain_knn_args is not None
+    is_pretrain = not isinstance(pretrain_knn_args_or_pret_res_str, str)
     assert is_pretrain == isinstance(model, ModelMoCo)
     prefix = 'pretrain' if is_pretrain else 'lnr_eval'
     test_acc_name = 'knn_acc' if is_pretrain else 'test_acc'
@@ -412,6 +429,7 @@ def pretrain_or_linear_eval(
         train_t = time.time()
         
         if is_pretrain:
+            pretrain_knn_args = pretrain_knn_args_or_pret_res_str
             test_acc1 = knn_test(lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters, te_ld, model.encoder_q, pretrain_knn_args, num_classes)
             test_acc5, test_loss = 0, 0
         else:
@@ -470,12 +488,16 @@ def pretrain_or_linear_eval(
             for des, ta, ba in zip(meta.descs, topk_accs, best_accs)
         })
         res_str = (
-            f' avg tr losses  {str(tr_loss_mov_avgs).replace(chr(10), " ")}'
+            f' avg tr losses  {str(tr_loss_mov_avgs).replace(chr(10), " ")}\n'
             f' best     acc5s @ (max={best_acc5s.max():.3f}, mean={best_acc5s.mean():.3f}, std={best_acc5s.std():.3f}) {str(best_acc5s).replace(chr(10), " ")})\n'
             f' mean-top acc1s @ (max={topk_accs.max():.3f}, mean={topk_accs.mean():.3f}, std={topk_accs.std():.3f}) {str(topk_accs).replace(chr(10), " ")})\n'
             f' best     acc1s @ (max={best_accs.max():.3f}, mean={best_accs.mean():.3f}, std={best_accs.std():.3f}) {str(best_accs).replace(chr(10), " ")})'
         )
-        # todo: 把pretrain和LE的结果都打在最后呗
+        
+        if not is_pretrain:
+            pret_res_str = pretrain_knn_args_or_pret_res_str
+            lg.info(f'==> pretrain.results: \n{pret_res_str}\n')
+            
         lg.info(
             f'==> {prefix} finished,'
             f' total time cost: {dt / 60:.2f}min ({dt / 60 / 60:.2f}h)'
@@ -494,7 +516,7 @@ def pretrain_or_linear_eval(
             strs = ''.join([f'# {l}\n' for l in lines])
             with open(run_shell_name, 'a') as fp:
                 print(f'\n# {prefix} {meta.exp_dirname}:\n{strs}', file=fp)
-        return topk_accs
+        return res_str
     else:
         assert False
 
