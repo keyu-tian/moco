@@ -59,7 +59,7 @@ parser.add_argument('--schedule', default=[120, 160], nargs='*', type=int, help=
 parser.add_argument('--warmup', action='store_true', help='use warming up')
 parser.add_argument('--wd', default=5e-4, type=float, metavar='W', help='weight decay')
 parser.add_argument('--nowd', action='store_true', help='no wd for params of bn and bias')
-parser.add_argument('--grad_clip', default='4', type=str, help='max grad norm')
+parser.add_argument('--grad_clip', default='5', type=str, help='max grad norm')
 
 # linear evaluation
 parser.add_argument('--eval_epochs', default=100, type=int, metavar='N', help='number of total epochs to run')
@@ -71,7 +71,7 @@ parser.add_argument('--eval_schedule', default=[60, 80], nargs='*', type=int, he
 parser.add_argument('--eval_warmup', action='store_true', help='use warming up')
 parser.add_argument('--eval_wd', default=0., type=float, metavar='W', help='weight decay')
 parser.add_argument('--eval_nowd', action='store_true', help='no wd for params of bn and bias')
-parser.add_argument('--eval_grad_clip', default='4', type=str, help='max grad norm')
+parser.add_argument('--eval_grad_clip', default='5', type=str, help='max grad norm')
 
 # data
 parser.add_argument('--dataset', default='cifar10', choices=['cifar10', 'cifar100', 'imagenet'])
@@ -82,22 +82,6 @@ parser.add_argument('--pin_mem', action='store_true')
 # knn monitor
 parser.add_argument('--knn_k', default=200, type=int, help='k in kNN monitor')
 parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperature in kNN monitor; could be different with moco-t')
-
-# explore: swapping
-# todo：把下面的参数都全文搜索下
-# parser.add_argument('--swap_epochs', default=None, type=int)
-# parser.add_argument('--swap_idx', default=None, type=str)  # todo: 选equ_per+cojrrc
-# parser.add_argument('--swap_inv', action='store_true')
-# parser.add_argument('--reset_op', action='store_true')
-#
-# parser.add_argument('--el_epochs_base', default=None, type=int)
-# parser.add_argument('--el_epochs_inc', default=None, type=int)
-# parser.add_argument('--early', action='store_true')
-# parser.add_argument('--late', action='store_true')
-
-# explore: adversarial
-parser.add_argument('--adv_epochs', default=None, type=int)
-# parser.add_argument('--adv_iters', default=None, type=int)
 
 
 class CIFAR10Pair(CIFAR10):
@@ -153,19 +137,6 @@ def main_process(args, dist: TorchDistManager):
     args.dataset = args.dataset.strip().lower()
     dataset_meta = dataset_metas[args.dataset]
     args.num_classes = dataset_meta.num_classes
-    
-    # rm: if args.el_epochs_base is not None:
-    #     assert args.early ^ args.late
-    #     ep = args.el_epochs_base + dist.rank // (dist.world_size // 4) * args.el_epochs_inc
-    #     args.swap_epochs = ep if args.early else (args.epochs - ep)
-    #     args.swap_inv = args.late
-    #     args.swap_once = True
-    # else:
-    #     args.swap_once = False
-    #
-    # args.swapping = args.swap_epochs is not None
-    # args.adversarial = args.adv_epochs is not None
-    # assert not (args.swapping and args.adversarial)
     
     lg, g_tb_lg, l_tb_lg = create_files(args, dist)
     lg: Logger = lg  # just for the code completion (actually is `DistLogger`)
@@ -281,12 +252,11 @@ def main_process(args, dist: TorchDistManager):
     )
     pretrain_model = ModelMoCo(dim=args.moco_dim, **model_kw)
     lnr_eval_model = ModelMoCo(dim=args.num_classes, **model_kw)
-    # todo: start from here
     
     if args.eval_resume_ckpt is None:
         if not args.pret_verbose and not dist.is_master():
             l_tb_lg._verbose = False
-        topk_accs = pretrain_or_linear_eval(
+        pret_topk_accs = pretrain_or_linear_eval(
             (knn_iters, knn_ld, args.knn_k, args.knn_t, knn_ld.dataset.targets), args.num_classes, ExpMeta(
                 args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.resume_ckpt,
                 args.epochs, args.lr, args.wd, args.nowd, args.coslr, args.schedule, args.warmup, args.grad_clip
@@ -294,11 +264,11 @@ def main_process(args, dist: TorchDistManager):
             lg, g_tb_lg, l_tb_lg, dist, pretrain_model, pret_iters, pret_ld, test_iters, test_ld
         )
 
-        broadcasting = not args.swap_once
-        if broadcasting: # not the early-late exp
-            src_rank = topk_accs.argmax().item()
-            for _, param in pretrain_model.state_dict().items():
-                dist.broadcast(param.data, src_rank)
+        # broadcasting = ?
+        # if broadcasting:
+        #     src_rank = topk_accs.argmax().item()
+        #     for _, param in pretrain_model.state_dict().items():
+        #         dist.broadcast(param.data, src_rank)
         
         d = pretrain_model.encoder_q.state_dict()
         ks = deepcopy(list(d.keys()))
@@ -307,6 +277,8 @@ def main_process(args, dist: TorchDistManager):
                 del d[k]
         msg = lnr_eval_model.encoder_q.load_state_dict(d, strict=False)
         assert len(msg.unexpected_keys) == 0 and all(k.startswith('fc.') for k in msg.missing_keys)
+    else:
+        raise NotImplementedError
     
     l_tb_lg._verbose = True
     pretrain_or_linear_eval(
@@ -355,14 +327,6 @@ def pretrain_or_linear_eval(
     prefix = 'pretrain' if is_pretrain else 'lnr_eval'
     test_acc_name = 'knn_acc' if is_pretrain else 'test_acc'
     
-    swapping, adversarial = swap_args is not None, adv_args is not None
-    if adversarial:
-        counts = {tu[1]: 0 for tu in adv_args[-2]}
-        last_ld, last_adv_ld_idx = None, 0
-    else:
-        last_adv_ld_idx = -1
-    last_sw_ld_idx = 0
-    
     if not meta.coslr:
         sc = meta.schedule
         lg.info(f'=> [{prefix}]: origin lr schedule={sc} ({type(sc)})')
@@ -380,20 +344,16 @@ def pretrain_or_linear_eval(
     else:
         meta = meta._replace(grad_clip=float(meta.grad_clip))
     
-    # load model if resume
     epoch_start = 0
-    best_test_acc1 = 0
-    best_test_acc5 = 0
+    best_test_acc1 = best_test_acc5 = 0.
     topk_acc1s = TopKHeap(maxsize=max(1, round(meta.epochs * 0.05)))
+    # load model if resume
     # todo: double-check ckpt loading and early returning
     if meta.resume_ckpt is not None:
         ckpt = torch.load(meta.resume_ckpt, map_location='cpu')
         model.load_state_dict(ckpt['model'])
         best_test_acc1 = ckpt['best_test_acc1']
         [topk_acc1s.push_q(x) for x in ckpt['topk_acc1s']]
-        if ckpt['adv_last_ld_idx'] != -1 and adv_args is not None:
-            last_adv_ld_idx = ckpt['adv_last_ld_idx']
-            last_ld = adv_args[-3](adv_args[-2][last_adv_ld_idx][0])
         
         epoch_start = ckpt['epoch'] + 1
         lg.info(f'=> [{prefix}]: ckpt loaded from {meta.resume_ckpt}, last_ep={epoch_start - 1}, ep_start={epoch_start}')
@@ -443,43 +403,8 @@ def pretrain_or_linear_eval(
             torch.cuda.empty_cache()
             master_echo(dist.is_master(), f' @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s ', '36')
         
-        loader = tr_ld
-        if is_pretrain:
-            if swapping:
-                sw_freq, sw_ld, sw_inv, sw_once, reset_op = swap_args
-                loaders = (sw_ld, tr_ld) if sw_inv else (tr_ld, sw_ld)
-                if sw_once and epoch >= sw_freq:  # todo: save what for resuming?
-                    idx = 1
-                else:
-                    idx = (epoch // sw_freq) & 1
-                if last_sw_ld_idx != idx:
-                    last_sw_ld_idx = idx
-                    if reset_op:
-                        optimizer.load_state_dict(initial_op_state)
-                loader = loaders[idx]
-            
-            elif adversarial:
-                ad_freq, rand_ld, candidate_ld, get_adv_ld, trans, reset_op = adv_args
-                if epoch < 4 * ad_freq:
-                    loader = rand_ld
-                elif epoch % ad_freq == 0:
-                    idx = select_loader(dist, model, tr_iters, candidate_ld)
-                    tr, name = trans[idx]
-                    last_ld = loader = get_adv_ld(tr)
-                    last_adv_ld_idx = idx
-                    lg.info(f'[adver.] transform={name}')
-                    master_echo(dist.is_master(), f'[adver.] transform={name}')
-                    
-                    counts[name] += 1
-                    g_tb_lg.add_scalars(f'{prefix}/adv_trans', counts, epoch)
-                    
-                    if reset_op:
-                        optimizer.load_state_dict(initial_op_state)
-                else:
-                    loader = last_ld
-        
         start_t = time.time()
-        tr_loss: float = train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_iters, loader, model, params, optimizer, initial_op_state, avgs)
+        tr_loss: float = train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_iters, tr_ld, model, params, optimizer, initial_op_state, avgs)
         tr_loss_mov_avg = tr_loss if tr_loss_mov_avg == 0 else tr_loss_mov_avg * 0.99 + tr_loss * 0.01
         train_t = time.time()
         
@@ -498,7 +423,6 @@ def pretrain_or_linear_eval(
         state_dict = {
             'arch': meta.arch, 'epoch': epoch, 'model': model.state_dict(), 'optimizer': optimizer.state_dict(),
             'topk_acc1s': list(topk_acc1s),
-            'adv_last_ld_idx': last_adv_ld_idx
         }
         if best_updated:
             best_test_acc1 = test_acc1
@@ -750,38 +674,6 @@ def sanity_check(current_state, initial_state):
         t1: torch.Tensor
         t2: torch.Tensor
         assert (t1 == t2).all(), f'{key} changed in the linear evaluation'
-
-
-def select_loader(dist: TorchDistManager, model: ModelMoCo, tr_iters: int, candidate_ld: DataLoader):
-    # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] begin')
-    
-    # x = torch.tensor([dist.rank], dtype=torch.float)
-    # dist.allreduce(x)
-    # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] x={x[0].item()}')
-    
-    # y = torch.tensor([dist.rank], dtype=torch.float)
-    # dist.broadcast(y, dist.world_size - 1)
-    # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] y={y[0].item()}')
-    
-    master_echo(dist.is_master(), f'[adver.] broadcast params... ', tail='\\c')
-    for _, param in model.state_dict().items():
-        dist.broadcast(param.data, 0)
-    master_echo(dist.is_master(), f'    finished!', '36', tail='')
-    # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] broadcast')
-    
-    model.eval()
-    with torch.no_grad():
-        tot_loss, tot_num = 0., 0
-        for data1, data2 in candidate_ld:
-            # if it == 0:
-            #     master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] iter 0')
-            bs = data1.shape[0]
-            tot_loss += model(data1.cuda(non_blocking=True), data2.cuda(non_blocking=True), training=False).item() * bs
-        # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] dist')
-        idx = dist.dist_fmt_vals(tot_loss / 50000, None).argmax().item()
-    model.train()
-    # master_echo(True, f'{time_str()}[rk{dist.rank:02d}][adv] end')
-    return idx
 
 
 if __name__ == '__main__':
