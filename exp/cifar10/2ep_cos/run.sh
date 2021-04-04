@@ -18,7 +18,7 @@ python -u -m main_cifar \
 --moco_m=0.99 \
 --moco_t=0.1 \
 --moco_symm \
---epochs=10 \
+--epochs=4 \
 --coslr \
 --warmup \
 --eval_epochs=10 \
