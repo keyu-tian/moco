@@ -18,10 +18,10 @@ python -u -m main_cifar \
 --moco_m=0.99 \
 --moco_t=0.1 \
 --moco_symm \
---epochs=2 \
+--epochs=10 \
 --coslr \
 --warmup \
---eval_epochs=100 \
+--eval_epochs=10 \
 --eval_coslr \
 --num_workers=4 \
 --pin_mem \
