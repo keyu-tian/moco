@@ -271,7 +271,7 @@ def filter_params(model: torch.nn.Module):
 
 def adjust_learning_rate(optimizer, cur_iter, max_iter, max_lr, meta):
     """Decay the learning rate based on schedule"""
-    warmup_iters = max_iter // 200
+    warmup_iters = max(max_iter // 200, 2)
     if meta.warmup and cur_iter <= warmup_iters:
         ratio = cur_iter / warmup_iters
         base_lr = max_lr / 5
