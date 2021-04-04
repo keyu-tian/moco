@@ -13,6 +13,8 @@ srun \
 python -u -m main_cifar \
 --main_py_rel_path="${REL_PATH}" \
 --exp_dirname="${EXP_DIR}" \
+--dataset=cifar10 \
+--ds_root=None \
 --moco_m=0.99 \
 --moco_t=0.1 \
 --moco_symm \
@@ -21,7 +23,6 @@ python -u -m main_cifar \
 --warmup \
 --eval_epochs=100 \
 --eval_coslr \
---dataset=cifar10 \
 --num_workers=4 \
 --pin_mem \
 #--sbn \
