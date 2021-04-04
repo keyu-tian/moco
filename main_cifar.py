@@ -86,6 +86,9 @@ parser.add_argument('--pin_mem', action='store_true')
 parser.add_argument('--knn_k', default=200, type=int, help='k in kNN monitor')
 parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperature in kNN monitor; could be different with moco-t')
 
+# exploration
+parser.add_argument('--crop_test', action='store_true')
+
 
 class CIFAR10PairTransform(object):
     def __init__(self, rrc_params_path, normalize, interpolation=Image.BILINEAR):
@@ -116,7 +119,10 @@ class CIFAR10Pair(CIFAR10):
     def __getitem__(self, index):
         pil_img = self.data[index]          # ignore self.targets
         pil_img = Image.fromarray(pil_img)
-        im1, im2 = self.transform(pil_img)  # must be a CIFAR10PairTransform
+        if isinstance(self.transform, CIFAR10PairTransform):
+            im1, im2 = self.transform(pil_img)
+        else:
+            im1, im2 = self.transform(pil_img), self.transform(pil_img)
         return im1, im2
 
 
@@ -197,8 +203,19 @@ def main_process(args, dist: TorchDistManager):
 
     if args.ds_root is None or args.ds_root == 'None':
         args.ds_root = os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
-        
-    pret_transform = CIFAR10PairTransform(os.path.join(os.path.expanduser('~'), f'rrc_params', f'{args.dataset}.npy'), transforms.Normalize(*dataset_meta.mean_std, inplace=True))
+    
+    if args.crop_test:
+        pret_transform = CIFAR10PairTransform(os.path.join(os.path.expanduser('~'), f'rrc_params', f'{args.dataset}.npy'), transforms.Normalize(*dataset_meta.mean_std, inplace=True))
+    else:
+        pret_transform = transforms.Compose([
+            transforms.RandomResizedCrop(32),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
+            transforms.RandomGrayscale(p=0.2),
+            transforms.ToTensor(),
+            transforms.Normalize(*dataset_meta.mean_std, inplace=True),
+        ])
+    
     test_transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(*dataset_meta.mean_std, inplace=True),
