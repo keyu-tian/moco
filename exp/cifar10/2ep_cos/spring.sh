@@ -21,7 +21,7 @@ python -u -m main_cifar \
 --epochs=2 \
 --coslr \
 --warmup \
---eval_epochs=100 \
+--eval_epochs=2 \
 --eval_coslr \
 --num_workers=4 \
 --pin_mem \
