@@ -91,8 +91,9 @@ class CIFAR10PairTransform(object):
     def __init__(self, rrc_params_path, normalize, interpolation=Image.BILINEAR):
         self.rrc_params = tuple(tuple(p) for p in np.load(rrc_params_path).tolist())
         self.interpolation = interpolation
-        self.size = 32
+        self.size = (32, 32)
         
+        # transforms.RandomResizedCrop
         self.transforms = transforms.Compose([
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
