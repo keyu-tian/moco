@@ -1,4 +1,4 @@
-sleep "${2:-"1"}"
+sleep "${2:-"0"}"
 
 REL_PATH=../../../
 DIR_NAME="${PWD##*/}"
