@@ -253,8 +253,8 @@ def main_process(args, dist: TorchDistManager):
         symmetric=args.moco_symm,
         init=args.init
     )
-    pretrain_model = ModelMoCo(dim=args.moco_dim, **model_kw)
-    lnr_eval_model = ModelMoCo(dim=args.num_classes, **model_kw)
+    pretrain_model = ModelMoCo(dim=args.moco_dim, **model_kw).cuda()
+    lnr_eval_model = ModelMoCo(dim=args.num_classes, **model_kw).cuda()
     
     if args.eval_resume_ckpt is None:
         if not args.pret_verbose and not dist.is_master():
