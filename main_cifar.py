@@ -191,7 +191,7 @@ def main_process(args, dist: TorchDistManager):
     ])
     
     if args.ds_root is None or args.ds_root == 'None':
-        ds_root = os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
+        args.ds_root = os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
     # ds_choice = torch.randperm(8)[0]
     # dist.broadcast(ds_choice, 0)
     # ds_choice = ds_choice.item()
@@ -207,22 +207,22 @@ def main_process(args, dist: TorchDistManager):
             master_echo(True, f'{time_str()}[rk{dist.rank:2d}] construct dataloaders... ', tail='\\c')
             
             # todo: imagenet 用什么 loader啊？参考下moco原代码
-            pret_data = CIFAR10Pair(root=ds_root, train=True, transform=pret_transform, download=False)
+            pret_data = CIFAR10Pair(root=args.ds_root, train=True, transform=pret_transform, download=False)
             pret_ld = DataLoader(pret_data, batch_size=args.batch_size, shuffle=True, drop_last=True, **data_kw)
             pret_iters = len(pret_ld)
-            lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {ds_root}')
+            lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {args.ds_root}')
             
-            knn_data = CIFAR10(root=ds_root, train=True, transform=test_transform, download=False)
+            knn_data = CIFAR10(root=args.ds_root, train=True, transform=test_transform, download=False)
             knn_ld = DataLoader(knn_data, batch_size=args.batch_size * 2, shuffle=False, drop_last=False, **data_kw)
             knn_iters = len(knn_ld)
             lg.info(f'=> [main]: prepare knn_data  (iters={knn_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
             
-            test_data = CIFAR10(root=ds_root, train=False, transform=test_transform, download=False)
+            test_data = CIFAR10(root=args.ds_root, train=False, transform=test_transform, download=False)
             test_ld = DataLoader(test_data, batch_size=args.batch_size * 2, shuffle=False, drop_last=False, **data_kw)
             test_iters = len(test_ld)
             lg.info(f'=> [main]: prepare test_data (iters={test_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
             
-            eval_data = CIFAR10(root=ds_root, train=True, transform=eval_transform, download=False)
+            eval_data = CIFAR10(root=args.ds_root, train=True, transform=eval_transform, download=False)
             eval_ld = DataLoader(eval_data, batch_size=args.batch_size, shuffle=True, drop_last=True, **data_kw)
             eval_iters = len(eval_ld)
             lg.info(f'=> [main]: prepare eval_data (iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
