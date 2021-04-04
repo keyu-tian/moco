@@ -1,8 +1,62 @@
-import numpy as np
+from typing import NamedTuple, Tuple, Dict
+
 import torch
+import torchvision
+from torch.utils.data import Dataset
 from torch.utils.data.sampler import Sampler
 
+from utils.imagenet import ImageNetDataset, ImageNetDataset120
 from utils.misc import ints_ceil
+
+
+class _DatasetMeta(NamedTuple):
+    img_ch: int
+    train_val_set_size: int
+    test_set_size: int
+    img_size: int
+    num_classes: int
+    clz: Dataset.__class__
+    mean_std: Tuple[tuple, tuple]
+
+
+dataset_metas: Dict[str, _DatasetMeta] = {
+    'imagenet': _DatasetMeta(
+        img_ch=3,
+        train_val_set_size=1281168,
+        test_set_size=50000,
+        img_size=224,
+        num_classes=1000,
+        clz=ImageNetDataset,
+        mean_std=((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+    ),
+    'imagenet120': _DatasetMeta(
+        img_ch=3,
+        train_val_set_size=153487,
+        test_set_size=6000,
+        img_size=224,
+        num_classes=120,
+        clz=ImageNetDataset120,
+        mean_std=((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+    ),
+    'cifar10': _DatasetMeta(
+        img_ch=3,
+        train_val_set_size=50000,
+        test_set_size=10000,
+        img_size=32,
+        num_classes=10,
+        clz=torchvision.datasets.CIFAR10,
+        mean_std=((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ),
+    'cifar100': _DatasetMeta(
+        img_ch=3,
+        train_val_set_size=50000,
+        test_set_size=10000,
+        img_size=32,
+        num_classes=100,
+        clz=torchvision.datasets.CIFAR100,
+        mean_std=((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)),
+    ),
+}
 
 
 class InfiniteBatchSampler(Sampler):

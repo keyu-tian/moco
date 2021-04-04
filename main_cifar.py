@@ -20,7 +20,7 @@ from torchvision.transforms import Compose
 from aug_op.ops import *
 from meta import seatable_fname, run_shell_name
 from model.moco import ModelMoCo
-from utils.data import InfiniteBatchSampler
+from utils.data import InfiniteBatchSampler, dataset_metas
 from utils.dist import TorchDistManager
 from utils.file import create_files
 from utils.misc import time_str, filter_params, set_seed, AverageMeter, TopKHeap, adjust_learning_rate, accuracy, master_echo
@@ -35,6 +35,7 @@ parser.add_argument('--resume_ckpt', default=None, type=str, metavar='PATH', hel
 parser.add_argument('--eval_resume_ckpt', default=None, type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
 parser.add_argument('--seed_base', default=None, type=int)
 parser.add_argument('--log_freq', default=3, type=int)
+parser.add_argument('--pret_verbose', action='store_true')
 
 # moco
 parser.add_argument('--arch', default='resnet18')
@@ -74,7 +75,7 @@ parser.add_argument('--eval_grad_clip', default='4', type=str, help='max grad no
 
 # data
 parser.add_argument('--dataset', default='cifar10', choices=['cifar10', 'cifar100', 'imagenet'])
-parser.add_argument('--ds_root', default='', help='dataset root')
+parser.add_argument('--ds_root', default='/mnt/lustre/share/images', help='dataset root dir')
 parser.add_argument('--num_workers', default=4, type=int)
 parser.add_argument('--pin_mem', action='store_true')
 
@@ -83,17 +84,16 @@ parser.add_argument('--knn_k', default=200, type=int, help='k in kNN monitor')
 parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperature in kNN monitor; could be different with moco-t')
 
 # explore: swapping
-parser.add_argument('--pret_verbose', action='store_true')
-parser.add_argument('--swap_epochs', default=None, type=int)
-parser.add_argument('--swap_idx', default=None, type=str)  # todo: 选equ_per+cojrrc
-# parser.add_argument('--swap_iters', default=None, type=int)
-parser.add_argument('--swap_inv', action='store_true')
-parser.add_argument('--reset_op', action='store_true')
-
-parser.add_argument('--el_epochs_base', default=None, type=int)
-parser.add_argument('--el_epochs_inc', default=None, type=int)
-parser.add_argument('--early', action='store_true')
-parser.add_argument('--late', action='store_true')
+# todo：把下面的参数都全文搜索下
+# parser.add_argument('--swap_epochs', default=None, type=int)
+# parser.add_argument('--swap_idx', default=None, type=str)  # todo: 选equ_per+cojrrc
+# parser.add_argument('--swap_inv', action='store_true')
+# parser.add_argument('--reset_op', action='store_true')
+#
+# parser.add_argument('--el_epochs_base', default=None, type=int)
+# parser.add_argument('--el_epochs_inc', default=None, type=int)
+# parser.add_argument('--early', action='store_true')
+# parser.add_argument('--late', action='store_true')
 
 # explore: adversarial
 parser.add_argument('--adv_epochs', default=None, type=int)
@@ -149,24 +149,23 @@ def main_process(args, dist: TorchDistManager):
     
     args.descs = [f'rk{rk:02d}' for rk in range(dist.world_size)]
     args.loc_desc = args.descs[dist.rank]
-    args.num_classes = {
-        'cifar10': 10,
-        'cifar100': 100,
-        'imagenet': 1000,
-    }[args.dataset]
     
-    if args.el_epochs_base is not None:
-        assert args.early ^ args.late
-        ep = args.el_epochs_base + dist.rank // (dist.world_size // 4) * args.el_epochs_inc
-        args.swap_epochs = ep if args.early else (args.epochs - ep)
-        args.swap_inv = args.late
-        args.swap_once = True
-    else:
-        args.swap_once = False
+    args.dataset = args.dataset.strip().lower()
+    dataset_meta = dataset_metas[args.dataset]
+    args.num_classes = dataset_meta.num_classes
     
-    args.swapping = args.swap_epochs is not None
-    args.adversarial = args.adv_epochs is not None
-    assert not (args.swapping and args.adversarial)
+    # rm: if args.el_epochs_base is not None:
+    #     assert args.early ^ args.late
+    #     ep = args.el_epochs_base + dist.rank // (dist.world_size // 4) * args.el_epochs_inc
+    #     args.swap_epochs = ep if args.early else (args.epochs - ep)
+    #     args.swap_inv = args.late
+    #     args.swap_once = True
+    # else:
+    #     args.swap_once = False
+    #
+    # args.swapping = args.swap_epochs is not None
+    # args.adversarial = args.adv_epochs is not None
+    # assert not (args.swapping and args.adversarial)
     
     lg, g_tb_lg, l_tb_lg = create_files(args, dist)
     lg: Logger = lg  # just for the code completion (actually is `DistLogger`)
@@ -199,74 +198,17 @@ def main_process(args, dist: TorchDistManager):
         pr=0, rem=0, beg_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     )
     
-    assert args.dataset == 'cifar10'
-    
-    def get_normalize(ds_name: str):
-        return transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
-    
-    def compose(*ts):
-        return transforms.Compose([transforms.RandomHorizontalFlip(p=0.5), *ts, get_normalize(args.dataset)])
-    
-    #  0 : colors_Per 太弱
-    #  1 : colors_RRC 稍弱
-    #  2 : contra_Per 太弱
-    #  3 : contra_RRC 一般
-    #  4 : bright_Per 太弱
-    #  5 : bright_RRC 一般
-    #  6 : equali_Per 稍弱
-    #  7 : equali_RRC 强
-    #  8 : atcshp_Per 太弱
-    #  9 : atcshp_RRC 一般
-    # 10 : coljit_Per 太弱
-    # 11 : coljit_RRC baseline
-    trans: Tuple[Tuple[Compose, str]] = []
-    for color_tr, name in [
-        (transforms.Compose([Color(Color.RANGES[8]), transforms.RandomApply([Brightness(Brightness.RANGES[4])], p=0.4)]), 'colbrt'),
-        (Contrast(Contrast.RANGES[5]), 'contra'),
-        # (Brightness(Brightness.RANGES[3]), 'bright'),
-        (transforms.RandomApply([transforms.RandomChoice([Equalize(), AutoContrast()])], 2 / 3), 'equatc'),
-        # (transforms.RandomApply([AutoContrast()], 0.5), 'atcrst'),
-        (transforms.ColorJitter(0.4, 0.4, 0.4, 0.1), 'coljit'),
-    ]:
-        ls = [transforms.RandomApply([color_tr], p=0.8), transforms.RandomGrayscale(p=0.2)]
-        if name not in {'equatc', 'coljit'}:
-            ls.append(transforms.RandomApply([Sharpness(Sharpness.RANGES[4])], p=0.5))
-        tr = transforms.Compose(ls)
-        t = compose(
-            transforms.RandomCrop(32, padding=6, padding_mode='edge'),
-            tr,
-            transforms.ToTensor(),
-            RandomPerspective(RandomPerspective.RANGES[4]),
-        )
-        trans.append((t, f'{name}_per'))
-        t = compose(
-            transforms.RandomResizedCrop(32),
-            deepcopy(tr),
-            transforms.ToTensor(),
-        )
-        trans.append((t, f'{name}_rrc'))
-    trans = tuple(trans)
-    
     pret_transform = transforms.Compose([
         transforms.RandomResizedCrop(32),
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
         transforms.RandomGrayscale(p=0.2),
         transforms.ToTensor(),
-        get_normalize(args.dataset)
+        transforms.Normalize(*dataset_meta.mean_std, inplace=True),
     ])
-    swap_transform = transforms.Compose([
-        transforms.RandomResizedCrop(32),
-        transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomApply([AutoContrast()], p=0.8),
-        transforms.RandomApply([Sharpness(Sharpness.RANGES[4])], p=0.5),
-        transforms.ToTensor(),
-        get_normalize(args.dataset)
-    ])
-    
     test_transform = transforms.Compose([
         transforms.ToTensor(),
-        get_normalize(args.dataset)
+        transforms.Normalize(*dataset_meta.mean_std, inplace=True),
     ])
     eval_transform = transforms.Compose([
         transforms.RandomResizedCrop(32),
@@ -274,7 +216,7 @@ def main_process(args, dist: TorchDistManager):
         # transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
         # transforms.RandomGrayscale(p=0.2),
         transforms.ToTensor(),
-        get_normalize(args.dataset)
+        transforms.Normalize(*dataset_meta.mean_std, inplace=True),
     ])
     
     ds_root = args.ds_root or os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
@@ -284,7 +226,6 @@ def main_process(args, dist: TorchDistManager):
     # ds_root += f'_{ds_choice}'
     # master_echo(dist.is_master(), f'[dataset] choice={ds_choice}')
     
-    assert not args.torch_ddp
     data_kw = dict(num_workers=args.num_workers, pin_memory=args.pin_mem)
     
     assert args.batch_size % args.num_workers == 0
@@ -292,47 +233,12 @@ def main_process(args, dist: TorchDistManager):
     for rk in range(dist.world_size):
         if rk == dist.rank:
             master_echo(True, f'{time_str()}[rk{dist.rank:2d}] construct dataloaders... ', tail='\\c')
+            
+            # todo: imagenet 用什么 loader啊？参考下moco原代码
             pret_data = CIFAR10Pair(root=ds_root, train=True, transform=pret_transform, download=False)
             pret_ld = DataLoader(pret_data, batch_size=args.batch_size, shuffle=True, drop_last=True, **data_kw)
             pret_iters = len(pret_ld)
             lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {ds_root}')
-            
-            if args.adversarial:
-                sw_t = trans[dist.rank][0]
-            elif args.swap_idx is not None:
-                if args.swap_idx == 'rank':
-                    folds = dist.world_size // 8
-                    sw_t = trans[dist.rank // folds][0]
-                else:
-                    sw_t = trans[int(args.swap_idx)][0]
-            else:
-                sw_t = swap_transform
-            
-            swap_adv_data = CIFAR10Pair(root=ds_root, train=True, transform=sw_t, download=False)
-            swap_adv_ld = DataLoader(swap_adv_data, batch_size=args.batch_size, shuffle=True, drop_last=True, **data_kw)
-            swap_adv_iters = len(swap_adv_ld)
-            lg.info(f'=> [main]: prepare swap/adv_data (iters={swap_adv_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
-            assert swap_adv_iters == pret_iters
-            swap_args = (args.swap_epochs, swap_adv_ld, args.swap_inv, args.swap_once, args.reset_op) if args.swapping else None
-            
-            if args.adversarial:
-                bs = args.batch_size
-                
-                def get_adv_ld(tr):
-                    nonlocal ds_root, bs, data_kw
-                    ds = CIFAR10Pair(root=ds_root, train=True, transform=tr, download=False)
-                    return DataLoader(ds, batch_size=bs, shuffle=True, drop_last=True,
-                                      **data_kw)  # todo: 本来这里不应该drop last的，因为要用整50000张衡量才公平，但是考虑到代码方便（因为train函数里的loader可能是train也可能是sw，他们应该是一样的都drop_last）
-                
-                rand_data = CIFAR10Pair(root=ds_root, train=True, transform=transforms.RandomChoice([deepcopy(tu[0]) for tu in trans]), download=False)
-                rand_ld = DataLoader(rand_data, batch_size=args.batch_size, shuffle=True, drop_last=True, **data_kw)
-                rand_iters = len(rand_ld)
-                lg.info(f'=> [main]: prepare rand_data (iters={rand_iters}, ddp={args.torch_ddp}): @ {ds_root}')
-                assert rand_iters == pret_iters
-                
-                adv_args = (args.adv_epochs, rand_ld, swap_adv_ld, get_adv_ld, trans, args.reset_op)
-            else:
-                adv_args = None
             
             knn_data = CIFAR10(root=ds_root, train=True, transform=test_transform, download=False)
             knn_ld = DataLoader(knn_data, batch_size=args.batch_size * 2, shuffle=False, drop_last=False, **data_kw)
@@ -350,16 +256,10 @@ def main_process(args, dist: TorchDistManager):
             lg.info(f'=> [main]: prepare eval_data (iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
             
             master_echo(True, f'    finished!', '36', tail='')
-            
-            if args.swap_epochs is not None:
-                master_echo(dist.is_master(), f'[explore.swap]: args.swap_epochs={args.swap_epochs}')
-            if args.adv_epochs is not None:
-                master_echo(dist.is_master(), f'[explore.swap]: args.adv_epochs ={args.adv_epochs}')
-            
-            lg.info(f'=> [main]: args:\n{pf(vars(args))}\n')
         
         dist.barrier()
     
+    lg.info(f'=> [main]: args:\n{pf(vars(args))}\n')
     lg.info(
         f'=> [main]: create the moco model: (ddp={args.torch_ddp})\n'
         f'     arch={args.arch}, feature dim={args.moco_dim}\n'
@@ -367,11 +267,10 @@ def main_process(args, dist: TorchDistManager):
         f'     sync bn={args.sbn}, mlp={args.mlp}, symmetric loss={args.moco_symm}'
     )
     # create model
-    pretrain_model = ModelMoCo(
+    model_kw = dict(
         lg=lg,
         torch_ddp=args.torch_ddp,
         arch=args.arch,
-        dim=args.moco_dim,
         K=args.moco_k,  # queue size
         m=args.moco_m,  # ema momentum
         T=args.moco_t,  # temperature
@@ -379,27 +278,16 @@ def main_process(args, dist: TorchDistManager):
         mlp=args.mlp,
         symmetric=args.moco_symm,
         init=args.init
-    ).cuda()
-    
-    lnr_eval_model = ModelMoCo(
-        lg=lg,
-        torch_ddp=args.torch_ddp,
-        arch=args.arch,
-        dim=args.num_classes,
-        K=args.moco_k,  # queue size
-        m=args.moco_m,  # ema momentum
-        T=args.moco_t,  # temperature
-        sbn=args.sbn,
-        mlp=args.mlp,
-        symmetric=args.moco_symm,
-        init=args.init
-    ).cuda()
+    )
+    pretrain_model = ModelMoCo(dim=args.moco_dim, **model_kw)
+    lnr_eval_model = ModelMoCo(dim=args.num_classes, **model_kw)
+    # todo: start from here
     
     if args.eval_resume_ckpt is None:
         if not args.pret_verbose and not dist.is_master():
             l_tb_lg._verbose = False
         topk_accs = pretrain_or_linear_eval(
-            (knn_iters, knn_ld, args.knn_k, args.knn_t, knn_ld.dataset.targets), swap_args, adv_args, args.num_classes, ExpMeta(
+            (knn_iters, knn_ld, args.knn_k, args.knn_t, knn_ld.dataset.targets), args.num_classes, ExpMeta(
                 args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.resume_ckpt,
                 args.epochs, args.lr, args.wd, args.nowd, args.coslr, args.schedule, args.warmup, args.grad_clip
             ),
@@ -422,7 +310,7 @@ def main_process(args, dist: TorchDistManager):
     
     l_tb_lg._verbose = True
     pretrain_or_linear_eval(
-        None, None, None, args.num_classes, ExpMeta(
+        None, args.num_classes, ExpMeta(
             args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.eval_resume_ckpt,
             args.eval_epochs, args.eval_lr, args.eval_wd, args.eval_nowd, args.eval_coslr, args.eval_schedule, args.eval_warmup, args.eval_grad_clip
         ),
@@ -456,7 +344,7 @@ class ExpMeta(NamedTuple):
 
 
 def pretrain_or_linear_eval(
-        pretrain_knn_args, swap_args, adv_args,
+        pretrain_knn_args,
         num_classes: int,
         meta: ExpMeta, lg: Logger, g_tb_lg: SummaryWriter, l_tb_lg: SummaryWriter,
         dist: TorchDistManager, model: Union[ModelMoCo, torch.nn.Module],
@@ -659,6 +547,7 @@ def pretrain_or_linear_eval(
             f' mean-top acc1s @ (max={topk_accs.max():.3f}, mean={topk_accs.mean():.3f}, std={topk_accs.std():.3f}) {str(topk_accs).replace(chr(10), " ")})\n'
             f' best     acc1s @ (max={best_accs.max():.3f}, mean={best_accs.mean():.3f}, std={best_accs.std():.3f}) {str(best_accs).replace(chr(10), " ")})'
         )
+        # todo: 把pretrain和LE的结果都打在最后呗
         lg.info(
             f'==> {prefix} finished,'
             f' total time cost: {dt / 60:.2f}min ({dt / 60 / 60:.2f}h)'
