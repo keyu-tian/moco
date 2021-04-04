@@ -428,8 +428,9 @@ def pretrain_or_linear_eval(
         if best_updated:
             best_test_acc1 = test_acc1
             best_test_acc5 = test_acc5
-            torch.save(state_dict, os.path.join(meta.exp_root, f'{prefix}_best.pth'))
-        torch.save(state_dict, os.path.join(meta.exp_root, f'{prefix}_latest.pth'))
+            # todo: save
+            # torch.save(state_dict, os.path.join(meta.exp_root, f'{prefix}_best.pth'))
+        # torch.save(state_dict, os.path.join(meta.exp_root, f'{prefix}_latest.pth'))
         
         remain_time, finish_time = epoch_speed.time_preds(meta.epochs - (epoch + 1))
         lg.info(
