@@ -206,6 +206,8 @@ def main_process(args, dist: TorchDistManager):
         if rk == dist.rank:
             master_echo(True, f'{time_str()}[rk{dist.rank:2d}] construct dataloaders... ', tail='\\c')
             
+            print(args.ds_root)
+            args.ds_root = os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
             # todo: imagenet 用什么 loader啊？参考下moco原代码
             pret_data = CIFAR10Pair(root=args.ds_root, train=True, transform=pret_transform, download=False)
             pret_ld = DataLoader(pret_data, batch_size=args.batch_size, shuffle=True, drop_last=True, **data_kw)
