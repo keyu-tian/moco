@@ -190,7 +190,8 @@ def main_process(args, dist: TorchDistManager):
         transforms.Normalize(*dataset_meta.mean_std, inplace=True),
     ])
     
-    ds_root = args.ds_root or os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
+    if args.ds_root is None or args.ds_root == 'None':
+        ds_root = os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
     # ds_choice = torch.randperm(8)[0]
     # dist.broadcast(ds_choice, 0)
     # ds_choice = ds_choice.item()
