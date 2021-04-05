@@ -37,6 +37,38 @@ class RandomResizedCrop(object):
         self.scale = scale
         self.ratio = ratio
     
+    def get_params(self, img):
+        width, height = img.size
+        area = height * width
+    
+        for _ in range(10):
+            target_area = random.uniform(*self.scale) * area
+            log_ratio = (math.log(self.ratio[0]), math.log(self.ratio[1]))
+            aspect_ratio = math.exp(random.uniform(*log_ratio))
+        
+            w = int(round(math.sqrt(target_area * aspect_ratio)))
+            h = int(round(math.sqrt(target_area / aspect_ratio)))
+        
+            if 0 < w <= width and 0 < h <= height:
+                i = random.randint(0, height - h)
+                j = random.randint(0, width - w)
+                return i, j, h, w
+    
+        # Fallback to central crop
+        in_ratio = float(width) / float(height)
+        if (in_ratio < min(self.ratio)):
+            w = width
+            h = int(round(w / min(self.ratio)))
+        elif (in_ratio > max(self.ratio)):
+            h = height
+            w = int(round(h * max(self.ratio)))
+        else:  # whole image
+            w = width
+            h = height
+        i = (height - h) // 2
+        j = (width - w) // 2
+        return i, j, h, w
+
     def __call__(self, img, i, j, h, w):
         return F.resized_crop(img, i, j, h, w, self.size, self.interpolation)
 
@@ -85,8 +117,9 @@ def filter_param_pair(HW: int, sample_ratio: float, coords: np.ndarray):
             AC = __IoU(Ay0, Ax0, Ay1, Ax1, Cy0, Cx0, Cy1, Cx1)
             BC = __IoU(By0, Bx0, By1, Bx1, Cy0, Cx0, Cy1, Cx1)
 
-            # if random.random() < 0.01:
-            if 0.25 > AB > -1 and 0.55 > AC > 0.23 and 0.55 > BC > 0.23 and rS > 0.5 and SA > SC / 2.5 and SB > SC / 2.5:
+            # if random.random() < 0.1:
+            if AC > 0.2 and BC > 0.2:
+            # if 0.25 > AB > -1 and 0.55 > AC > 0.23 and 0.55 > BC > 0.23 and rS > 0.5 and SA > SC / 2.5 and SB > SC / 2.5:
                 Ai, Aj, Ah, Aw = Ay0, Ax0, Ay1-Ay0+1, Ax1-Ax0+1
                 Bi, Bj, Bh, Bw = By0, Bx0, By1-By0+1, Bx1-Bx0+1
                 params.append([Ai, Aj, Ah, Aw, Bi, Bj, Bh, Bw])
@@ -163,13 +196,18 @@ def __test():
 
     sample_ratio = 0.003
     IoUs, final_params = filter_param_pair(HW, sample_ratio, coords)
+    print(f'selective ratio = {100 * IoUs.shape[0] / (params.shape[0] ** 2 / 2 * sample_ratio):.2f}%')
+    
+    ML = 300000
+    if len(IoUs) > ML:
+        IoUs, final_params = IoUs[:ML], final_params[:ML]
+        print(f'(clipped to {ML})')
     idx = np.random.permutation(len(IoUs))
     IoUs, final_params = IoUs[idx], final_params[idx]
     print(f'IoUs.shape = {IoUs.shape}')
     print(f'final_params.shape = {final_params.shape}')
-    print(f'selective ratio = {100 * IoUs.shape[0] / (params.shape[0] ** 2 / 2 * sample_ratio):.2f}%')
     
-    np.save('cifar10', final_params)
+    np.save('unnamed', final_params)
     
     from aug_op.rrc_vis import vis
     vis(IoUs, final_params)

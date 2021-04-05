@@ -87,7 +87,7 @@ parser.add_argument('--knn_k', default=200, type=int, help='k in kNN monitor')
 parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperature in kNN monitor; could be different with moco-t')
 
 # exploration
-parser.add_argument('--crop_test', action='store_true')
+parser.add_argument('--rrc_test', type=str, default='')
 
 
 class CIFAR10PairTransform(object):
@@ -204,8 +204,8 @@ def main_process(args, dist: TorchDistManager):
     if args.ds_root is None or args.ds_root == 'None':
         args.ds_root = os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
     
-    if args.crop_test:
-        pret_transform = CIFAR10PairTransform(os.path.join(os.path.expanduser('~'), f'rrc_params', f'{args.dataset}.npy'), transforms.Normalize(*dataset_meta.mean_std, inplace=True))
+    if args.rrc_test:
+        pret_transform = CIFAR10PairTransform(os.path.join(os.path.expanduser('~'), f'rrc_params', f'{dataset_meta.img_size}_{args.rrc_test}.npy'), transforms.Normalize(*dataset_meta.mean_std, inplace=True))
     else:
         pret_transform = transforms.Compose([
             transforms.RandomResizedCrop(32),

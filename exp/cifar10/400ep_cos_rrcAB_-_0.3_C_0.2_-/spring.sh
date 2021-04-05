@@ -9,8 +9,8 @@ python "${REL_PATH}monitor.py" "${EXP_DIR}" &
 PYTHONPATH=${PYTHONPATH}:${REL_PATH} \
 srun \
 --job-name "${DIR_NAME}----${EXP_DIR}" \
---mpi=pmi2 -p $1 --comment=spring-submit -n8 --gres=gpu:8 \
---ntasks-per-node=8 \
+--mpi=pmi2 -p $1 --comment=spring-submit -n4 --gres=gpu:4 \
+--ntasks-per-node=4 \
 --cpus-per-task=6 \
 python -u -m main_cifar \
 --main_py_rel_path="${REL_PATH}" \
@@ -20,14 +20,14 @@ python -u -m main_cifar \
 --moco_m=0.99 \
 --moco_t=0.1 \
 --moco_symm \
---epochs=800 \
+--epochs=400 \
 --coslr \
 --warmup \
 --eval_epochs=100 \
 --eval_coslr \
 --num_workers=4 \
 --pin_mem \
---crop_test \
+--rrc_test=AB_-_0.3_C_0.2_- \
 #--sbn \
 #--warmup
 #--nowd
