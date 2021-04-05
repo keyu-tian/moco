@@ -21,6 +21,7 @@ from torchvision import transforms
 from torchvision.datasets import CIFAR10
 from torchvision.transforms import functional as VF
 
+from aug_op.rrc import get_params
 from meta import seatable_fname, run_shell_name
 from model.moco import ModelMoCo
 from utils.data import dataset_metas
@@ -91,8 +92,18 @@ parser.add_argument('--rrc_test', type=str, default='')
 
 
 class CIFAR10PairTransform(object):
-    def __init__(self, rrc_params_path, normalize, interpolation=Image.BILINEAR):
-        self.rrc_params = tuple(tuple(p) for p in np.load(rrc_params_path).tolist())
+    def __init__(self, verbose: bool, HW: int, rrc_test_cfg: str, normalize, interpolation=Image.BILINEAR):
+        rrc_params_path = os.path.abspath(os.path.join(os.path.expanduser('~'), 'rrc_params', f'{HW}_{rrc_test_cfg}.npy'))
+        if os.path.exists(rrc_params_path):
+            master_echo(verbose, f'{time_str()}[rk00] load rrc_params from {rrc_params_path} ... ', tail='\\c')
+            self.rrc_params = tuple(tuple(p) for p in np.load(rrc_params_path).tolist())
+            master_echo(verbose, f'    finished!', '36', tail='')
+        else:
+            master_echo(verbose, f'{time_str()}[rk00] calc rrc_params, progress:', tail='')
+            self.rrc_params = get_params(HW, rrc_test_cfg, 5000000, verbose)
+            master_echo(verbose, f'{time_str()}[rk00] save at {rrc_params_path} ... ', tail='\\c')
+            np.save(rrc_params_path.replace('.npy', ''), self.rrc_params)
+            master_echo(verbose, f'    finished!', '36', tail='')
         self.interpolation = interpolation
         self.size = (32, 32)
         
@@ -235,7 +246,7 @@ def main_process(args, dist: TorchDistManager):
         args.ds_root = os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
     
     if args.rrc_test:
-        pret_transform = CIFAR10PairTransform(os.path.join(os.path.expanduser('~'), f'rrc_params', f'{dataset_meta.img_size}_{args.rrc_test}.npy'), transforms.Normalize(*dataset_meta.mean_std, inplace=True))
+        pret_transform = CIFAR10PairTransform(dist.rank == 0, dataset_meta.img_size, args.rrc_test, transforms.Normalize(*dataset_meta.mean_std, inplace=True))
     else:
         pret_transform = transforms.Compose([
             transforms.RandomResizedCrop(32),
