@@ -589,7 +589,7 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
     if is_pretrain:
         model.train()
     else:
-        model.eval()
+        model.eval()    # todo: 全连接也弄成eval？确定吗？应该只是说提feature层应该不能更新吧，FC应该可以更新的吧！看下moco源代码！
     
     tr_loss_avg, tr_acc1_avg, tr_acc5_avg = avgs
     log_iters = tr_iters // meta.log_freq
