@@ -124,7 +124,7 @@ def get_params(HW, rrc_test_cfg: str, target_num, verbose):
         verbose=verbose
     )
     return final_params
-get_params(32, 'AB_0.0_0.3', 100, True)
+get_params(32, 'AB_0.0_0.3', 100, False)
 
 
 if __name__ == '__main__':

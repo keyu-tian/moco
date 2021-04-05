@@ -246,7 +246,11 @@ def main_process(args, dist: TorchDistManager):
         args.ds_root = os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
     
     if args.rrc_test:
-        pret_transform = CIFAR10PairTransform(dist.rank == 0, dataset_meta.img_size, args.rrc_test, transforms.Normalize(*dataset_meta.mean_std, inplace=True))
+        if dist.rank == 0:
+            pret_transform = CIFAR10PairTransform(True, dataset_meta.img_size, args.rrc_test, transforms.Normalize(*dataset_meta.mean_std, inplace=True))
+        dist.barrier()
+        if dist.rank != 0:
+            pret_transform = CIFAR10PairTransform(False, dataset_meta.img_size, args.rrc_test, transforms.Normalize(*dataset_meta.mean_std, inplace=True))
     else:
         pret_transform = transforms.Compose([
             transforms.RandomResizedCrop(32),
