@@ -27,7 +27,7 @@ python -u -m main_cifar \
 --eval_coslr \
 --num_workers=4 \
 --pin_mem \
-#--rrc_test=Rand30w \
+--rrc_test=Rand500w \
 #--sbn \
 #--warmup
 #--nowd

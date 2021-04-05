@@ -117,8 +117,8 @@ def filter_param_pair(HW: int, sample_ratio: float, coords: np.ndarray):
             AC = __IoU(Ay0, Ax0, Ay1, Ax1, Cy0, Cx0, Cy1, Cx1)
             BC = __IoU(By0, Bx0, By1, Bx1, Cy0, Cx0, Cy1, Cx1)
 
-            # if random.random() < 0.1:
-            if AC > 0.2 and BC > 0.2:
+            if random.random() < 0.1:
+            # if AC > 0.2 and BC > 0.2:
             # if 0.25 > AB > -1 and 0.55 > AC > 0.23 and 0.55 > BC > 0.23 and rS > 0.5 and SA > SC / 2.5 and SB > SC / 2.5:
                 Ai, Aj, Ah, Aw = Ay0, Ax0, Ay1-Ay0+1, Ax1-Ax0+1
                 Bi, Bj, Bh, Bw = By0, Bx0, By1-By0+1, Bx1-Bx0+1
