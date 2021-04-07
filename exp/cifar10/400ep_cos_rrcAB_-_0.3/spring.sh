@@ -53,3 +53,17 @@ else
 fi
 
 
+
+# pretrain exp-2021-0406-044817-spring_scheduler-1080ti:
+#  avg tr losses  tensor([6.4296, 6.4226, 6.4273, 6.4201])
+#  best     acc5s @ (max=0.000, mean=0.000, std=0.000) tensor([0., 0., 0., 0.]))
+#  mean-top acc1s @ (max=86.605, mean=86.430, std=0.167) tensor([86.4920, 86.4120, 86.2090, 86.6055]))
+#  best     acc1s @ (max=86.680, mean=86.510, std=0.173) tensor([86.5700, 86.5200, 86.2700, 86.6800]))
+
+
+# lnr_eval exp-2021-0406-044817-spring_scheduler-1080ti:
+#  avg tr losses  tensor([0.4651, 0.4779, 0.5411, 0.5409])
+#  best     acc5s @ (max=99.720, mean=99.680, std=0.039) tensor([99.6700, 99.7200, 99.6300, 99.7000]))
+#  mean-top acc1s @ (max=88.908, mean=88.688, std=0.162) tensor([88.6880, 88.9080, 88.5240, 88.6320]))
+#  best     acc1s @ (max=88.990, mean=88.757, std=0.181) tensor([88.7600, 88.9900, 88.5500, 88.7300]))
+
