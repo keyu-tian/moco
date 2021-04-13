@@ -63,6 +63,8 @@ parser.add_argument('--batch_size', default=512, type=int, metavar='N', help='mi
 # both pretraining & linear evaluation use the same bs
 # cifar: batch_size=512(not dist)    imagenet: batch_size=256(glb)
 # lr: 0.06 for batch 512 (or 0.03 for batch 256)
+parser.add_argument('--knn_ld_or_test_ld_batch_size', default=512, type=int, metavar='N', help='mini-batch size')
+# cifar: knn_ld_or_test_ld_batch_size=512(not dist)    imagenet: knn_ld_or_test_ld_batch_size=256(not dist)
 parser.add_argument('--lr', default=0.06, type=float, metavar='LR', help='initial learning rate')
 # cifar: lr=0.06 for b512    imagenet: lr=0.03 for b256
 parser.add_argument('--coslr', action='store_true', help='use cosine lr schedule')
@@ -74,8 +76,6 @@ parser.add_argument('--grad_clip', default='5', type=str, help='max grad norm')
 
 # linear evaluation
 parser.add_argument('--eval_epochs', default=100, type=int, metavar='N', help='number of total epochs to run')  # same for cifar and imagenet
-parser.add_argument('--knn_ld_or_test_ld_batch_size', default=512, type=int, metavar='N', help='mini-batch size')
-# cifar: knn_ld_or_test_ld_batch_size=512(not dist)    imagenet: knn_ld_or_test_ld_batch_size=256(not dist)
 parser.add_argument('--eval_lr', default=30, type=float, metavar='LR', help='initial learning rate')
 # cifar: eval_lr=30 for b512    imagenet: eval_lr=30 for b256
 parser.add_argument('--eval_coslr', action='store_true', help='use cosine lr schedule')
@@ -261,7 +261,7 @@ def main_process(args, dist: TorchDistManager):
             master_echo(True, f'{time_str()}[rk{dist.rank:2d}] construct dataloaders... ', tail='\\c')
             
             # todo: imagenet 用什么 loader啊？参考下moco原代码
-            pret_data = InputPairSet(root=args.ds_root, train=True, transform=pret_transform, download=False)
+            pret_data = InputPairSet(dataset_meta.clz(root=args.ds_root, train=True, transform=pret_transform, download=False))
             pret_sp = DistributedSampler(pret_data, **dist_sp_kw) if args.torch_ddp else None
             pret_ld = DataLoader(pret_data, batch_size=args.batch_size, sampler=pret_sp, shuffle=(pret_sp is None), drop_last=(pret_sp is None), **data_kw)
             pret_iters = len(pret_ld)
