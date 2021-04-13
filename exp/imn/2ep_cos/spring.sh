@@ -19,12 +19,12 @@ python -u -m main_cifar \
 --dataset=imagenet \
 --arch=resnet50 \
 --ds_root="/mnt/lustre/share/images" \
---moco_k=128 \
+--moco_k=64 \
 --moco_m=0.999 \
 --moco_t=0.2 \
 --epochs=2 \
---batch_size=128 \
---knn_ld_or_test_ld_batch_size=128 \
+--batch_size=64 \
+--knn_ld_or_test_ld_batch_size=64 \
 --coslr \
 --warmup \
 --eval_epochs=2 \
