@@ -5,7 +5,7 @@ from functools import reduce
 import numpy as np
 import torch
 import torch.nn.functional as F
-from PIL import Image, ImageEnhance, ImageOps
+from PIL import Image, ImageEnhance, ImageOps, ImageFilter
 
 from .registry import Registry
 
@@ -191,31 +191,6 @@ class Invert(object):
 
 
 @aug_ops_dict.register
-class Cutout(object):
-    def __init__(self, n_holes=1, length=16):
-        self.n_holes = n_holes
-        self.length = length
-    
-    def pil(self, img):
-        h, w = img.shape
-        mask = np.ones((h, w), np.float32)
-        for n in range(self.n_holes):
-            y = np.random.randint(h)
-            x = np.random.randint(w)
-            y1 = np.clip(y - self.length // 2, 0, h)
-            y2 = np.clip(y + self.length // 2, 0, h)
-            x1 = np.clip(x - self.length // 2, 0, w)
-            x2 = np.clip(x + self.length // 2, 0, w)
-            mask[y1:y2, x1:x2] = 0.
-        
-        mask = torch.from_numpy(mask)
-        mask = mask.expand_as(img)
-        img = img * mask
-        
-        return img
-
-
-@aug_ops_dict.register
 class RandomPerspective(object):
     RANGES = np.linspace(0.0, 0.9, 10)
     grids_and_homo = {}
@@ -314,3 +289,38 @@ def apply_transform_to_batch(img_batch: torch.Tensor, trans_batch: torch.Tensor,
     cartesian_coords = t_homo_coords[:, :, :, :-1] / w               # (B, H, W, 3) => (B, H, W, 2)
     
     return F.grid_sample(img_batch, cartesian_coords, mode='bilinear', padding_mode=padding_mode, align_corners=align_corners)
+
+
+class Cutout(object):
+    def __init__(self, n_holes=1, length=16):
+        self.n_holes = n_holes
+        self.length = length
+    
+    def pil(self, img):
+        h, w = img.shape
+        mask = np.ones((h, w), np.float32)
+        for n in range(self.n_holes):
+            y = np.random.randint(h)
+            x = np.random.randint(w)
+            y1 = np.clip(y - self.length // 2, 0, h)
+            y2 = np.clip(y + self.length // 2, 0, h)
+            x1 = np.clip(x - self.length // 2, 0, w)
+            x2 = np.clip(x + self.length // 2, 0, w)
+            mask[y1:y2, x1:x2] = 0.
+        
+        mask = torch.from_numpy(mask)
+        mask = mask.expand_as(img)
+        img = img * mask
+        
+        return img
+
+
+class GaussianBlur(object):
+    def __init__(self, sigma=[.1, 2.]):
+        self.sigma = sigma
+    
+    def __call__(self, x: Image.Image):
+        sigma = random.uniform(self.sigma[0], self.sigma[1])
+        x = x.filter(ImageFilter.GaussianBlur(radius=sigma))
+        return x
+

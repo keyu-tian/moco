@@ -1,10 +1,15 @@
+import os
 import random
 import random
 from typing import Tuple
 
 import numba
 import numpy as np
-from torchvision.transforms import transforms
+from PIL import Image
+from torchvision import transforms
+from torchvision.transforms import transforms, functional as VF
+
+from utils.misc import master_echo, time_str
 
 
 @numba.jit(nopython=True, nogil=True, fastmath=True)    # , parallel=True
@@ -141,3 +146,67 @@ if __name__ == '__main__':
     from aug_op.rrc_vis import vis
     vis(*get_params(32, 'AllAB_-_0.3_C_0.2_-', 10000, True))
 
+
+class CIFAR10PairTransform(object):
+    def __init__(self, verbose: bool, HW: int, rrc_test_cfg: str, normalize, interpolation=Image.BILINEAR):
+        rrc_params_path = os.path.abspath(os.path.join(os.path.expanduser('~'), 'rrc_params', f'{HW}_{rrc_test_cfg}.npy'))
+        if os.path.exists(rrc_params_path):
+            master_echo(verbose, f'{time_str()}[rk00] load rrc_params from {rrc_params_path} ... ', tail='\\c')
+            self.rrc_params = tuple(tuple(p) for p in np.load(rrc_params_path).tolist())
+            master_echo(verbose, f'    finished!', '36', tail='')
+        else:
+            master_echo(verbose, f'{time_str()}[rk00] calc rrc_params, progress:', tail='')
+            self.rrc_params = get_params(HW, rrc_test_cfg, 5000000, verbose)
+            master_echo(verbose, f'{time_str()}[rk00] save at {rrc_params_path} ... ', tail='\\c')
+            np.save(rrc_params_path.replace('.npy', ''), self.rrc_params)
+            master_echo(verbose, f'    finished!', '36', tail='')
+        self.interpolation = interpolation
+        self.size = (32, 32)
+        
+        # transforms.RandomResizedCrop
+        self.transforms = transforms.Compose([
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
+            transforms.RandomGrayscale(p=0.2),
+            transforms.ToTensor(),
+            normalize
+        ])
+        
+        self.normalize = normalize
+    
+    def __call__(self, pil_img):
+        Ai, Aj, Ah, Aw, Bi, Bj, Bh, Bw = self.rrc_params[random.randrange(len(self.rrc_params))]
+        im1 = VF.resized_crop(pil_img, Ai, Aj, Ah, Aw, self.size, self.interpolation)
+        im2 = VF.resized_crop(pil_img, Bi, Bj, Bh, Bw, self.size, self.interpolation)
+        im1, im2 = self.transforms(im1), self.transforms(im2)
+        return im1, im2
+
+    # def __init__(self, rrc_params_path: str, normalize, interpolation=Image.BILINEAR):
+    #     self.rand_rrc = 'Rand' in rrc_params_path
+    #     if not self.rand_rrc:
+    #         self.rrc_params = tuple(tuple(p) for p in np.load(rrc_params_path).tolist())
+    #         self.interpolation = interpolation
+    #         self.size = (32, 32)
+    #
+    #     ls = [
+    #         transforms.RandomHorizontalFlip(p=0.5),
+    #         transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
+    #         transforms.RandomGrayscale(p=0.2),
+    #         transforms.ToTensor(),
+    #         normalize
+    #     ]
+    #     if self.rand_rrc:
+    #         ls.insert(0, transforms.RandomResizedCrop(32, scale=(0.08, 1.0), ratio=(3. / 4., 4. / 3.)))
+    #     self.transforms = transforms.Compose(ls)
+    #
+    #     self.normalize = normalize
+    #
+    # def __call__(self, pil_img):
+    #     if self.rand_rrc:
+    #         im1, im2 = self.transforms(pil_img), self.transforms(pil_img)
+    #     else:
+    #         Ai, Aj, Ah, Aw, Bi, Bj, Bh, Bw = self.rrc_params[random.randrange(len(self.rrc_params))]
+    #         im1 = VF.resized_crop(pil_img, Ai, Aj, Ah, Aw, self.size, self.interpolation)
+    #         im2 = VF.resized_crop(pil_img, Bi, Bj, Bh, Bw, self.size, self.interpolation)
+    #         im1, im2 = self.transforms(im1), self.transforms(im2)
+    #     return im1, im2

@@ -59,6 +59,22 @@ dataset_metas: Dict[str, _DatasetMeta] = {
 }
 
 
+class InputPairSet(Dataset):
+    def __init__(self, *args, **kwargs):
+        super(InputPairSet, self).__init__(*args, **kwargs)
+        self.has_attr_data = hasattr(self, 'data') and hasattr(self.data, '__getitem__')
+        if not self.has_attr_data:
+            assert hasattr(self, 'get_untransformed_image')
+        assert hasattr(self, 'transform') and self.transform is not None
+        
+    def __getitem__(self, index):
+        if self.has_attr_data:
+            pil_img = self.data[index]
+        else:
+            pil_img = self.get_untransformed_image(index)
+        return self.transform(pil_img), self.transform(pil_img)
+
+
 class InfiniteBatchSampler(Sampler):
     def __init__(self, dataset_len, batch_size, shuffle=True, drop_last=False, fill_last=False, seed=None):
         assert not (drop_last and fill_last)

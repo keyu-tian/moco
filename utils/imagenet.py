@@ -94,6 +94,9 @@ class ImageNetDataset(Dataset):
         
         return filebytes
     
+    def get_untransformed_image(self, idx):
+        return pil_loader(self.read_file(self.metas[idx][0]))
+    
     def __len__(self):
         return self.num_data
     

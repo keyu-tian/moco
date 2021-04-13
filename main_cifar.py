@@ -10,21 +10,22 @@ from pprint import pformat as pf
 from typing import NamedTuple, Optional, List, Union
 
 import colorama
-import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
 from rsa.prime import is_prime
 from tensorboardX import SummaryWriter
+from torch.nn.parallel.distributed import DistributedDataParallel
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from torchvision import transforms
 from torchvision.datasets import CIFAR10
-from torchvision.transforms import functional as VF
 
-from aug_op.rrc import get_params
+# from aug_op.rrc import CIFAR10PairTransform
+from aug_op.ops import GaussianBlur
 from meta import seatable_fname, run_shell_name
 from model.moco import ModelMoCo
-from utils.data import dataset_metas
+from utils.data import dataset_metas, InputPairSet
 from utils.dist import TorchDistManager
 from utils.file import create_files
 from utils.misc import time_str, filter_params, set_seed, AverageMeter, TopKHeap, adjust_learning_rate, accuracy, master_echo
@@ -44,10 +45,13 @@ parser.add_argument('--pret_verbose', action='store_true')
 # moco
 parser.add_argument('--arch', default='resnet18')
 parser.add_argument('--init', action='store_true')
-parser.add_argument('--moco_dim', default=128, type=int, help='feature dimension')
+parser.add_argument('--moco_dim', default=128, type=int, help='feature dimension')  # same for cifar and imagenet
 parser.add_argument('--moco_k', default=4096, type=int, help='queue size; number of negative keys')
+# cifar: moco_k=4096   imagenet: 65536
 parser.add_argument('--moco_m', default=0.99, type=float, help='moco momentum of updating key encoder')
+# cifar: moco_m=0.99   imagenet: 0.999
 parser.add_argument('--moco_t', default=0.1, type=float, help='softmax temperature')
+# cifar: moco_t=0.1    imagenet(mocov2): moco_t=0.2    imagenet(mocov1): moco_t=0.07
 # parser.add_argument('--bn_splits', default=8, type=int, help='simulate multi-gpu behavior of BatchNorm in one gpu; 1 is SyncBatchNorm in multi-gpu')
 parser.add_argument('--sbn', action='store_true', help='use synchronized batchnorm')
 parser.add_argument('--mlp', action='store_true', help='use mlp')
@@ -56,8 +60,11 @@ parser.add_argument('--moco_symm', action='store_true', help='use a symmetric lo
 # pretraining
 parser.add_argument('--epochs', default=200, type=int, metavar='N', help='number of total epochs to run')
 parser.add_argument('--batch_size', default=512, type=int, metavar='N', help='mini-batch size')
+# both pretraining & linear evaluation use the same bs
+# cifar: batch_size=512(not dist)    imagenet: batch_size=256(glb)
 # lr: 0.06 for batch 512 (or 0.03 for batch 256)
 parser.add_argument('--lr', default=0.06, type=float, metavar='LR', help='initial learning rate')
+# cifar: lr=0.06 for b512    imagenet: lr=0.03 for b256
 parser.add_argument('--coslr', action='store_true', help='use cosine lr schedule')
 parser.add_argument('--schedule', default=[120, 160], nargs='*', type=int, help='learning rate schedule (when to drop lr by 10x); does not take effect if --coslr is on')
 parser.add_argument('--warmup', action='store_true', help='use warming up')
@@ -66,10 +73,11 @@ parser.add_argument('--nowd', action='store_true', help='no wd for params of bn 
 parser.add_argument('--grad_clip', default='5', type=str, help='max grad norm')
 
 # linear evaluation
-parser.add_argument('--eval_epochs', default=100, type=int, metavar='N', help='number of total epochs to run')
-parser.add_argument('--eval_batch_size', default=512, type=int, metavar='N', help='mini-batch size')
-# lr: 0.06 for batch 512 (or 0.03 for batch 256)
+parser.add_argument('--eval_epochs', default=100, type=int, metavar='N', help='number of total epochs to run')  # same for cifar and imagenet
+parser.add_argument('--knn_ld_or_test_ld_batch_size', default=512, type=int, metavar='N', help='mini-batch size')
+# cifar: knn_ld_or_test_ld_batch_size=512(not dist)    imagenet: knn_ld_or_test_ld_batch_size=256(not dist)
 parser.add_argument('--eval_lr', default=30, type=float, metavar='LR', help='initial learning rate')
+# cifar: eval_lr=30 for b512    imagenet: eval_lr=30 for b256
 parser.add_argument('--eval_coslr', action='store_true', help='use cosine lr schedule')
 parser.add_argument('--eval_schedule', default=[60, 80], nargs='*', type=int, help='learning rate schedule (when to drop lr by 10x); does not take effect if --coslr is on')
 parser.add_argument('--eval_warmup', action='store_true', help='use warming up')
@@ -88,83 +96,18 @@ parser.add_argument('--knn_k', default=200, type=int, help='k in kNN monitor')
 parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperature in kNN monitor; could be different with moco-t')
 
 # exploration
-parser.add_argument('--rrc_test', type=str, default='')
+# parser.add_argument('--rrc_test', type=str, default='')
 
 
-class CIFAR10PairTransform(object):
-    def __init__(self, verbose: bool, HW: int, rrc_test_cfg: str, normalize, interpolation=Image.BILINEAR):
-        rrc_params_path = os.path.abspath(os.path.join(os.path.expanduser('~'), 'rrc_params', f'{HW}_{rrc_test_cfg}.npy'))
-        if os.path.exists(rrc_params_path):
-            master_echo(verbose, f'{time_str()}[rk00] load rrc_params from {rrc_params_path} ... ', tail='\\c')
-            self.rrc_params = tuple(tuple(p) for p in np.load(rrc_params_path).tolist())
-            master_echo(verbose, f'    finished!', '36', tail='')
-        else:
-            master_echo(verbose, f'{time_str()}[rk00] calc rrc_params, progress:', tail='')
-            self.rrc_params = get_params(HW, rrc_test_cfg, 5000000, verbose)
-            master_echo(verbose, f'{time_str()}[rk00] save at {rrc_params_path} ... ', tail='\\c')
-            np.save(rrc_params_path.replace('.npy', ''), self.rrc_params)
-            master_echo(verbose, f'    finished!', '36', tail='')
-        self.interpolation = interpolation
-        self.size = (32, 32)
-        
-        # transforms.RandomResizedCrop
-        self.transforms = transforms.Compose([
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
-            transforms.RandomGrayscale(p=0.2),
-            transforms.ToTensor(),
-            normalize
-        ])
-        
-        self.normalize = normalize
-    
-    def __call__(self, pil_img):
-        Ai, Aj, Ah, Aw, Bi, Bj, Bh, Bw = self.rrc_params[random.randrange(len(self.rrc_params))]
-        im1 = VF.resized_crop(pil_img, Ai, Aj, Ah, Aw, self.size, self.interpolation)
-        im2 = VF.resized_crop(pil_img, Bi, Bj, Bh, Bw, self.size, self.interpolation)
-        im1, im2 = self.transforms(im1), self.transforms(im2)
-        return im1, im2
-
-    # def __init__(self, rrc_params_path: str, normalize, interpolation=Image.BILINEAR):
-    #     self.rand_rrc = 'Rand' in rrc_params_path
-    #     if not self.rand_rrc:
-    #         self.rrc_params = tuple(tuple(p) for p in np.load(rrc_params_path).tolist())
-    #         self.interpolation = interpolation
-    #         self.size = (32, 32)
-    #
-    #     ls = [
-    #         transforms.RandomHorizontalFlip(p=0.5),
-    #         transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
-    #         transforms.RandomGrayscale(p=0.2),
-    #         transforms.ToTensor(),
-    #         normalize
-    #     ]
-    #     if self.rand_rrc:
-    #         ls.insert(0, transforms.RandomResizedCrop(32, scale=(0.08, 1.0), ratio=(3. / 4., 4. / 3.)))
-    #     self.transforms = transforms.Compose(ls)
-    #
-    #     self.normalize = normalize
-    #
-    # def __call__(self, pil_img):
-    #     if self.rand_rrc:
-    #         im1, im2 = self.transforms(pil_img), self.transforms(pil_img)
-    #     else:
-    #         Ai, Aj, Ah, Aw, Bi, Bj, Bh, Bw = self.rrc_params[random.randrange(len(self.rrc_params))]
-    #         im1 = VF.resized_crop(pil_img, Ai, Aj, Ah, Aw, self.size, self.interpolation)
-    #         im2 = VF.resized_crop(pil_img, Bi, Bj, Bh, Bw, self.size, self.interpolation)
-    #         im1, im2 = self.transforms(im1), self.transforms(im2)
-    #     return im1, im2
-
-
-class CIFAR10Pair(CIFAR10):
-    def __getitem__(self, index):
-        pil_img = self.data[index]          # ignore self.targets
-        pil_img = Image.fromarray(pil_img)
-        if isinstance(self.transform, CIFAR10PairTransform):
-            im1, im2 = self.transform(pil_img)
-        else:
-            im1, im2 = self.transform(pil_img), self.transform(pil_img)
-        return im1, im2
+# class CIFAR10Pair(CIFAR10):
+#     def __getitem__(self, index):
+#         pil_img = self.data[index]          # ignore self.targets
+#         pil_img = Image.fromarray(pil_img)
+#         if isinstance(self.transform, CIFAR10PairTransform):
+#             im1, im2 = self.transform(pil_img)
+#         else:
+#             im1, im2 = self.transform(pil_img), self.transform(pil_img)
+#         return im1, im2
 
 
 def main():
@@ -209,6 +152,7 @@ def main_process(args, dist: TorchDistManager):
     
     args.dataset = args.dataset.strip().lower()
     dataset_meta = dataset_metas[args.dataset]
+    on_imagenet = 'imagenet' in args.dataset
     args.num_classes = dataset_meta.num_classes
     
     lg, g_tb_lg, l_tb_lg = create_files(args, dist)
@@ -237,20 +181,45 @@ def main_process(args, dist: TorchDistManager):
         # mom=args.moco_m,
         T=args.moco_t,
         sbn=args.sbn, mlp=args.mlp, sym=args.moco_symm, init=args.init,
-        ep=args.epochs, bs=args.batch_size, cos=args.coslr, wp=args.warmup, nowd=args.nowd,
-        v_ep=args.eval_epochs, v_bs=args.eval_batch_size, v_cos=args.eval_coslr, v_wp=args.eval_warmup, v_nowd=args.eval_nowd,
+        ep=args.epochs, bs=args.batch_size, t_bs=args.knn_ld_or_test_ld_batch_size, cos=args.coslr, wp=args.warmup, nowd=args.nowd,
+        v_ep=args.eval_epochs, v_cos=args.eval_coslr, v_wp=args.eval_warmup, v_nowd=args.eval_nowd,
         pr=0, rem=0, beg_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     )
 
     if args.ds_root is None or args.ds_root == 'None':
         args.ds_root = os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
     
-    if args.rrc_test:
-        if dist.rank == 0:
-            pret_transform = CIFAR10PairTransform(True, dataset_meta.img_size, args.rrc_test, transforms.Normalize(*dataset_meta.mean_std, inplace=True))
-        dist.barrier()
-        if dist.rank != 0:
-            pret_transform = CIFAR10PairTransform(False, dataset_meta.img_size, args.rrc_test, transforms.Normalize(*dataset_meta.mean_std, inplace=True))
+    # if args.rrc_test:
+    #     if dist.rank == 0:
+    #         pret_transform = CIFAR10PairTransform(True, dataset_meta.img_size, args.rrc_test, transforms.Normalize(*dataset_meta.mean_std, inplace=True))
+    #     dist.barrier()
+    #     if dist.rank != 0:
+    #         pret_transform = CIFAR10PairTransform(False, dataset_meta.img_size, args.rrc_test, transforms.Normalize(*dataset_meta.mean_std, inplace=True))
+    # else:
+    if on_imagenet:
+        pret_transform = transforms.Compose([
+            transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
+            transforms.RandomApply([
+                transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
+            ], p=0.8),
+            transforms.RandomGrayscale(p=0.2),
+            transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(*dataset_meta.mean_std, inplace=True),
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(*dataset_meta.mean_std, inplace=True),
+        ])
+        eval_transform = transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ToTensor(),
+            transforms.Normalize(*dataset_meta.mean_std, inplace=True),
+        ])
     else:
         pret_transform = transforms.Compose([
             transforms.RandomResizedCrop(32),
@@ -260,19 +229,18 @@ def main_process(args, dist: TorchDistManager):
             transforms.ToTensor(),
             transforms.Normalize(*dataset_meta.mean_std, inplace=True),
         ])
-    
-    test_transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(*dataset_meta.mean_std, inplace=True),
-    ])
-    eval_transform = transforms.Compose([
-        transforms.RandomResizedCrop(32),
-        transforms.RandomHorizontalFlip(p=0.5),
-        # transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
-        # transforms.RandomGrayscale(p=0.2),
-        transforms.ToTensor(),
-        transforms.Normalize(*dataset_meta.mean_std, inplace=True),
-    ])
+        test_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(*dataset_meta.mean_std, inplace=True),
+        ])
+        eval_transform = transforms.Compose([
+            transforms.RandomResizedCrop(32),
+            transforms.RandomHorizontalFlip(p=0.5),
+            # transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
+            # transforms.RandomGrayscale(p=0.2),
+            transforms.ToTensor(),
+            transforms.Normalize(*dataset_meta.mean_std, inplace=True),
+        ])
     
     # ds_choice = torch.randperm(8)[0]
     # dist.broadcast(ds_choice, 0)
@@ -281,31 +249,38 @@ def main_process(args, dist: TorchDistManager):
     # master_echo(dist.is_master(), f'[dataset] choice={ds_choice}')
     
     data_kw = dict(num_workers=args.num_workers, pin_memory=args.pin_mem)
-    
-    assert args.batch_size % args.num_workers == 0
-    
+    dist_sp_kw = dict(num_replicas=dist.world_size, rank=dist.rank, shuffle=True)
+
+    if args.torch_ddp:
+        assert args.batch_size % dist.world_size == 0
+        args.global_batch_size = args.batch_size
+        args.batch_size //= dist.world_size
+
     for rk in range(dist.world_size):
         if rk == dist.rank:
             master_echo(True, f'{time_str()}[rk{dist.rank:2d}] construct dataloaders... ', tail='\\c')
             
             # todo: imagenet 用什么 loader啊？参考下moco原代码
-            pret_data = CIFAR10Pair(root=args.ds_root, train=True, transform=pret_transform, download=False)
-            pret_ld = DataLoader(pret_data, batch_size=args.batch_size, shuffle=True, drop_last=True, **data_kw)
+            pret_data = InputPairSet(root=args.ds_root, train=True, transform=pret_transform, download=False)
+            pret_sp = DistributedSampler(pret_data, **dist_sp_kw) if args.torch_ddp else None
+            pret_ld = DataLoader(pret_data, batch_size=args.batch_size, sampler=pret_sp, shuffle=(pret_sp is None), drop_last=(pret_sp is None), **data_kw)
             pret_iters = len(pret_ld)
             lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {args.ds_root}')
-            
-            knn_data = CIFAR10(root=args.ds_root, train=True, transform=test_transform, download=False)
-            knn_ld = DataLoader(knn_data, batch_size=args.batch_size * 2, shuffle=False, drop_last=False, **data_kw)
-            knn_iters = len(knn_ld)
-            lg.info(f'=> [main]: prepare knn_data  (iters={knn_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
+
+            if not on_imagenet:
+                knn_data = CIFAR10(root=args.ds_root, train=True, transform=test_transform, download=False)
+                knn_ld = DataLoader(knn_data, batch_size=args.knn_ld_or_test_ld_batch_size, shuffle=False, drop_last=False, **data_kw)
+                knn_iters = len(knn_ld)
+                lg.info(f'=> [main]: prepare knn_data  (iters={knn_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
             
             test_data = CIFAR10(root=args.ds_root, train=False, transform=test_transform, download=False)
-            test_ld = DataLoader(test_data, batch_size=args.batch_size * 2, shuffle=False, drop_last=False, **data_kw)
+            test_ld = DataLoader(test_data, batch_size=args.knn_ld_or_test_ld_batch_size, shuffle=False, drop_last=False, **data_kw)
             test_iters = len(test_ld)
             lg.info(f'=> [main]: prepare test_data (iters={test_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
             
             eval_data = CIFAR10(root=args.ds_root, train=True, transform=eval_transform, download=False)
-            eval_ld = DataLoader(eval_data, batch_size=args.batch_size, shuffle=True, drop_last=True, **data_kw)
+            eval_sp = DistributedSampler(eval_data, **dist_sp_kw) if args.torch_ddp else None
+            eval_ld = DataLoader(eval_data, batch_size=args.batch_size, sampler=eval_sp, shuffle=(eval_sp is None), drop_last=(eval_sp is None), **data_kw)
             eval_iters = len(eval_ld)
             lg.info(f'=> [main]: prepare eval_data (iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
             
@@ -323,6 +298,7 @@ def main_process(args, dist: TorchDistManager):
     # create model
     model_kw = dict(
         lg=lg,
+        on_imagenet=on_imagenet,
         torch_ddp=args.torch_ddp,
         arch=args.arch,
         K=args.moco_k,  # queue size
@@ -333,18 +309,33 @@ def main_process(args, dist: TorchDistManager):
         symmetric=args.moco_symm,
         init=args.init
     )
-    pretrain_model = ModelMoCo(dim=args.moco_dim, **model_kw).cuda()
-    lnr_eval_model = ModelMoCo(dim=args.num_classes, **model_kw).cuda()
+    pretrain_model = ModelMoCo(dim=args.moco_dim, **model_kw)
+    lnr_eval_model = ModelMoCo(dim=args.num_classes, **model_kw)
+    if not on_imagenet and args.sbn:
+        # actually, SyncBatchNorm is not used in mocov2's official implementation
+        pass
+        # pretrain_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(pretrain_model)
+        # lnr_eval_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(lnr_eval_model)
+    if args.torch_ddp:
+        pretrain_model = DistributedDataParallel(pretrain_model.cuda(), device_ids=[dist.dev_idx], output_device=dist.dev_idx)
+        lnr_eval_model = DistributedDataParallel(lnr_eval_model.cuda(), device_ids=[dist.dev_idx], output_device=dist.dev_idx)
+    else:
+        pretrain_model = pretrain_model.cuda()
+        lnr_eval_model = lnr_eval_model.cuda()
     
     if args.eval_resume_ckpt is None:
         if not args.pret_verbose and not dist.is_master():
             l_tb_lg._verbose = False
+        if on_imagenet:
+            pret_knn_args = None
+        else:
+            pret_knn_args = (knn_iters, knn_ld, args.knn_k, args.knn_t, knn_ld.dataset.targets)
         pret_res_str = pretrain_or_linear_eval(
-            (knn_iters, knn_ld, args.knn_k, args.knn_t, knn_ld.dataset.targets), args.num_classes, ExpMeta(
+            pret_knn_args, args.num_classes, ExpMeta(
                 args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.resume_ckpt,
                 args.epochs, args.lr, args.wd, args.nowd, args.coslr, args.schedule, args.warmup, args.grad_clip
             ),
-            lg, g_tb_lg, l_tb_lg, dist, pretrain_model, pret_iters, pret_ld, test_iters, test_ld
+            lg, g_tb_lg, l_tb_lg, dist, pretrain_model, pret_iters, pret_ld, pret_sp, test_iters, test_ld
         )
 
         # broadcasting = ?
@@ -369,7 +360,7 @@ def main_process(args, dist: TorchDistManager):
             args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.eval_resume_ckpt,
             args.eval_epochs, args.eval_lr, args.eval_wd, args.eval_nowd, args.eval_coslr, args.eval_schedule, args.eval_warmup, args.eval_grad_clip
         ),
-        lg, g_tb_lg, l_tb_lg, dist, lnr_eval_model.encoder_q, eval_iters, eval_ld, test_iters, test_ld
+        lg, g_tb_lg, l_tb_lg, dist, lnr_eval_model.encoder_q, eval_iters, eval_ld, eval_sp, test_iters, test_ld
     )
     
     g_tb_lg.close()
@@ -403,9 +394,9 @@ def pretrain_or_linear_eval(
         num_classes: int,
         meta: ExpMeta, lg: Logger, g_tb_lg: SummaryWriter, l_tb_lg: SummaryWriter,
         dist: TorchDistManager, model: Union[ModelMoCo, torch.nn.Module],
-        tr_iters: int, tr_ld: DataLoader, te_iters: int, te_ld: DataLoader,
+        tr_iters: int, tr_ld: DataLoader, tr_dist_sp: DistributedSampler, te_iters: int, te_ld: DataLoader,
 ):
-    is_pretrain = not isinstance(pretrain_knn_args_or_pret_res_str, str)
+    is_pretrain = pretrain_knn_args_or_pret_res_str is None or (not isinstance(pretrain_knn_args_or_pret_res_str, str))
     assert is_pretrain == isinstance(model, ModelMoCo)
     prefix = 'pretrain' if is_pretrain else 'lnr_eval'
     test_acc_name = 'knn_acc' if is_pretrain else 'test_acc'
@@ -428,7 +419,7 @@ def pretrain_or_linear_eval(
         meta = meta._replace(grad_clip=float(meta.grad_clip))
     
     epoch_start = 0
-    best_test_acc1 = best_test_acc5 = 0.
+    best_test_acc1 = best_test_acc5 = -5
     topk_acc1s = TopKHeap(maxsize=max(1, round(meta.epochs * 0.05)))
     # load model if resume
     # todo: double-check ckpt loading and early returning
@@ -479,6 +470,8 @@ def pretrain_or_linear_eval(
     avgs = (tr_loss_avg, tr_acc1_avg, tr_acc5_avg)
     tr_loss_mov_avg = 0
     for epoch in range(epoch_start, meta.epochs):
+        if meta.torch_ddp:
+            tr_dist_sp.set_epoch(epoch)
         ep_str = f'%{len(str(meta.epochs))}d'
         ep_str %= epoch + 1
         if epoch % 5 == 0 and dist.is_master():
@@ -493,13 +486,17 @@ def pretrain_or_linear_eval(
         
         if is_pretrain:
             pretrain_knn_args = pretrain_knn_args_or_pret_res_str
-            test_acc1 = knn_test(lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters, te_ld, model.encoder_q, pretrain_knn_args, num_classes)
-            test_acc5, test_loss = 0, 0
+            if pretrain_knn_args is not None:
+                test_acc1 = knn_test(lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters, te_ld, model.encoder_q, pretrain_knn_args, num_classes)
+                test_acc5 = test_loss = -1
+            else:
+                test_acc1 = test_acc5 = test_loss = -1
         else:
             test_acc1, test_acc5, test_loss = eval_test(lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters, te_ld, model, num_classes)
             l_tb_lg.add_scalar(f'{prefix}/{test_acc_name}5', test_acc5, epoch + 1)
             l_tb_lg.add_scalar(f'{prefix}/{test_acc_name.replace("acc", "loss")}', test_loss, epoch + 1)
-        l_tb_lg.add_scalar(f'{prefix}/{test_acc_name}1', test_acc1, epoch + 1)
+        if test_acc1 > 0:
+            l_tb_lg.add_scalar(f'{prefix}/{test_acc_name}1', test_acc1, epoch + 1)
         test_t = time.time()
         
         topk_acc1s.push_q(test_acc1)
@@ -628,7 +625,7 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
         loss.backward()
         back_t = time.time()
         sche_lr = adjust_learning_rate(op, cur_iter, max_iter, meta.lr, meta)
-        clipping = meta.grad_clip is not None and cur_iter < tr_iters * 8
+        clipping = meta.grad_clip is not None and cur_iter < tr_iters * 10
         if clipping:
             orig_norm = torch.nn.utils.clip_grad_norm_(params, meta.grad_clip)
             actual_lr = sche_lr * min(1, meta.grad_clip / orig_norm)

@@ -10,19 +10,22 @@ from utils.misc import init_params
 
 
 class ModelMoCo(nn.Module):
-    def __init__(self, lg, torch_ddp=False, arch='resnet18', dim=128, K=4096, m=0.99, T=0.1, sbn=False, mlp=False, symmetric=True, init=False):
+    def __init__(self, lg, on_imagenet, torch_ddp=False, arch='resnet18', dim=128, K=4096, m=0.99, T=0.1, sbn=False, mlp=False, symmetric=True, init=False):
         super(ModelMoCo, self).__init__()
         
         self.K = K
         self.m = m
         self.T = T
         self.symmetric = symmetric
+        self.torch_ddp = torch_ddp
         
         # create the encoders
-        # todo: torch_ddp
-        assert not torch_ddp
-        bn_splits = 1 if sbn else 8 # todo: torch_ddp
-        norm_layer = partial(SplitBatchNorm, num_splits=bn_splits) if bn_splits > 1 else nn.BatchNorm2d
+        if on_imagenet:
+            norm_layer = nn.BatchNorm2d
+        else:
+            bn_splits = 1 if sbn else 8 # todo: torch_ddp
+            norm_layer = partial(SplitBatchNorm, num_splits=bn_splits) if bn_splits > 1 else nn.BatchNorm2d
+        
         self.encoder_q = model_entry(model_name=arch, num_classes=dim, norm_layer=norm_layer)
         self.encoder_k = model_entry(model_name=arch, num_classes=dim, norm_layer=norm_layer)
         
@@ -54,6 +57,9 @@ class ModelMoCo(nn.Module):
     
     @torch.no_grad()
     def _dequeue_and_enqueue(self, keys):
+        if self.torch_ddp:
+            keys = concat_all_gather(keys)
+        
         batch_size = keys.shape[0]
         
         ptr = int(self.queue_ptr)
@@ -84,6 +90,53 @@ class ModelMoCo(nn.Module):
         Undo batch shuffle.
         """
         return x[idx_unshuffle]
+
+    @torch.no_grad()
+    def _batch_shuffle_ddp(self, x):
+        """
+        Batch shuffle, for making use of BatchNorm.
+        *** Only support DistributedDataParallel (DDP) model. ***
+        """
+        # gather from all gpus
+        batch_size_this = x.shape[0]
+        x_gather = concat_all_gather(x)
+        batch_size_all = x_gather.shape[0]
+    
+        num_gpus = batch_size_all // batch_size_this
+    
+        # random shuffle index
+        idx_shuffle = torch.randperm(batch_size_all).cuda()
+    
+        # broadcast to all gpus
+        torch.distributed.broadcast(idx_shuffle, src=0)
+    
+        # index for restoring
+        idx_unshuffle = torch.argsort(idx_shuffle)
+    
+        # shuffled index for this gpu
+        gpu_idx = torch.distributed.get_rank()
+        idx_this = idx_shuffle.view(num_gpus, -1)[gpu_idx]
+    
+        return x_gather[idx_this], idx_unshuffle
+
+    @torch.no_grad()
+    def _batch_unshuffle_ddp(self, x, idx_unshuffle):
+        """
+        Undo batch shuffle.
+        *** Only support DistributedDataParallel (DDP) model. ***
+        """
+        # gather from all gpus
+        batch_size_this = x.shape[0]
+        x_gather = concat_all_gather(x)
+        batch_size_all = x_gather.shape[0]
+    
+        num_gpus = batch_size_all // batch_size_this
+    
+        # restored index for this gpu
+        gpu_idx = torch.distributed.get_rank()
+        idx_this = idx_unshuffle.view(num_gpus, -1)[gpu_idx]
+    
+        return x_gather[idx_this]
     
     def contrastive_loss(self, im_q, im_k):
         # compute query features
@@ -93,13 +146,19 @@ class ModelMoCo(nn.Module):
         # compute key features
         with torch.no_grad():  # no gradient to keys
             # shuffle for making use of BN
-            im_k_, idx_unshuffle = self._batch_shuffle_single_gpu(im_k)
+            if self.torch_ddp:
+                im_k_, idx_unshuffle = self._batch_shuffle_ddp(im_k)
+            else:
+                im_k_, idx_unshuffle = self._batch_shuffle_single_gpu(im_k)
             
             k = self.encoder_k(im_k_)  # keys: NxC
             k = nn.functional.normalize(k, dim=1)  # already normalized
             
             # undo shuffle
-            k = self._batch_unshuffle_single_gpu(k, idx_unshuffle)
+            if self.torch_ddp:
+                k = self._batch_unshuffle_ddp(k, idx_unshuffle)
+            else:
+                k = self._batch_unshuffle_single_gpu(k, idx_unshuffle)
         
         # compute logits
         # Einstein sum is more intuitive
@@ -148,6 +207,21 @@ class ModelMoCo(nn.Module):
             self._dequeue_and_enqueue(k)
         
         return loss
+
+
+# utils
+@torch.no_grad()
+def concat_all_gather(tensor):
+    """
+    Performs all_gather operation on the provided tensors.
+    *** Warning ***: torch.distributed.all_gather has no gradient.
+    """
+    tensors_gather = [torch.ones_like(tensor)
+                      for _ in range(torch.distributed.get_world_size())]
+    torch.distributed.all_gather(tensors_gather, tensor, async_op=False)
+    
+    output = torch.cat(tensors_gather, dim=0)
+    return output
 
 
 if __name__ == '__main__':
