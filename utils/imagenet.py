@@ -116,8 +116,8 @@ class ImageNetDataset120(ImageNetDataset):
         assert len(set(idx120)) == 120
         
         # train size: 153487, test size: 6000
-        # 120 * 512 = 61440
-        target_num_per_cls = 512
+        # 120 * 1024 = 122880
+        target_num_per_cls = 1024
         count = defaultdict(int)
         me = list(filter(lambda tu: tu[1] in idx120, self.metas))
         self.metas = []

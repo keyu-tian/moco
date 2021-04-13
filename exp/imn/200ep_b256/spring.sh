@@ -15,7 +15,7 @@ srun \
 python -u -m main_cifar \
 --main_py_rel_path="${REL_PATH}" \
 --exp_dirname="${EXP_DIR}" \
---log_freq=16 \
+--log_freq=6 \
 --torch_ddp \
 --dataset=imagenet \
 --arch=resnet50 \
@@ -23,11 +23,12 @@ python -u -m main_cifar \
 --moco_k=65536 \
 --moco_m=0.999 \
 --moco_t=0.2 \
---epochs=2 \
+--epochs=200 \
 --batch_size=256 \
 --lr=0.03 \
---eval_lr=30 \
 --knn_ld_or_test_ld_batch_size=256 \
+--eval_batch_size=256 \
+--eval_lr=30 \
 --coslr \
 --warmup \
 --eval_epochs=2 \

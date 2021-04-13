@@ -60,8 +60,9 @@ parser.add_argument('--moco_symm', action='store_true', help='use a symmetric lo
 # pretraining
 parser.add_argument('--epochs', default=200, type=int, metavar='N', help='number of total epochs to run')
 parser.add_argument('--batch_size', default=512, type=int, metavar='N', help='mini-batch size')
-# both pretraining & linear evaluation use the same bs
 # cifar: batch_size=512(not dist)    imagenet: batch_size=256(glb)
+parser.add_argument('--eval_batch_size', default=512, type=int, metavar='N', help='mini-batch size')
+# cifar: eval_batch_size=512(not dist)    imagenet: eval_batch_size=256(glb)
 # lr: 0.06 for batch 512 (or 0.03 for batch 256)
 parser.add_argument('--knn_ld_or_test_ld_batch_size', default=512, type=int, metavar='N', help='mini-batch size')
 # cifar: knn_ld_or_test_ld_batch_size=512(not dist)    imagenet: knn_ld_or_test_ld_batch_size=256(not dist)
@@ -281,7 +282,7 @@ def main_process(args, dist: TorchDistManager):
             
             eval_data = ds_clz(root=args.ds_root, train=True, transform=eval_transform, download=False)
             eval_sp = DistributedSampler(eval_data, **dist_sp_kw) if args.torch_ddp else None
-            eval_ld = DataLoader(eval_data, batch_size=args.batch_size, sampler=eval_sp, shuffle=(eval_sp is None), drop_last=False, **data_kw)
+            eval_ld = DataLoader(eval_data, batch_size=args.eval_batch_size, sampler=eval_sp, shuffle=(eval_sp is None), drop_last=False, **data_kw)
             eval_iters = len(eval_ld)
             lg.info(f'=> [main]: prepare eval_data (iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
             
