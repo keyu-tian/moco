@@ -19,7 +19,7 @@ python -u -m main_cifar \
 --dataset=imagenet \
 --arch=resnet50 \
 --ds_root="/mnt/lustre/share/images" \
---moco_k=2048 \
+--moco_k=128 \
 --moco_m=0.999 \
 --moco_t=0.2 \
 --epochs=2 \
