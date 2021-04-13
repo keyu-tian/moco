@@ -86,7 +86,7 @@ parser.add_argument('--eval_nowd', action='store_true', help='no wd for params o
 parser.add_argument('--eval_grad_clip', default='5', type=str, help='max grad norm')
 
 # data
-parser.add_argument('--dataset', default='cifar10', choices=['cifar10', 'cifar100', 'imagenet'])
+parser.add_argument('--dataset', default='cifar10', choices=list(dataset_metas.keys()))
 parser.add_argument('--ds_root', default='/mnt/lustre/share/images', help='dataset root dir')
 parser.add_argument('--num_workers', default=4, type=int)
 parser.add_argument('--pin_mem', action='store_true')
