@@ -15,7 +15,7 @@ srun \
 python -u -m main_cifar \
 --main_py_rel_path="${REL_PATH}" \
 --exp_dirname="${EXP_DIR}" \
---log_freq=5 \
+--log_freq=16 \
 --torch_ddp \
 --dataset=imagenet120 \
 --arch=resnet50 \
