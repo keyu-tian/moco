@@ -397,7 +397,6 @@ def pretrain_or_linear_eval(
         tr_iters: int, tr_ld: DataLoader, tr_dist_sp: DistributedSampler, te_iters: int, te_ld: DataLoader,
 ):
     is_pretrain = pretrain_knn_args_or_pret_res_str is None or (not isinstance(pretrain_knn_args_or_pret_res_str, str))
-    assert is_pretrain == isinstance(model, ModelMoCo)
     prefix = 'pretrain' if is_pretrain else 'lnr_eval'
     test_acc_name = 'knn_acc' if is_pretrain else 'test_acc'
     
