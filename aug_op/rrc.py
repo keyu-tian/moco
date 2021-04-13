@@ -133,10 +133,11 @@ def get_params(HW, rrc_test_cfg: str, target_num, verbose):
         target_num=target_num,
         verbose=verbose
     )
-    return final_params
+    return IoUs, final_params
 get_params(32, 'All0.0_0.3', 100, False)
 
 
 if __name__ == '__main__':
-    print(get_params(32, 'AllAB_0.0_0.3', 100000, True).shape)
+    from aug_op.rrc_vis import vis
+    vis(*get_params(32, 'AllAB_-_0.3_C_0.2_-', 10000, True))
 

@@ -45,7 +45,7 @@ def show_ts_ims(ts_imgs, IoUs, final_params):
         plt.title(f'{AB:.2f}({AC:.2f}, {BC:.2f})')
         ax.add_patch(patches.Rectangle((Aj, Ai), Aw, Ah, linewidth=1, edgecolor='r', facecolor='none'))
         ax.add_patch(patches.Rectangle((Bj, Bi), Bw, Bh, linewidth=1, edgecolor='b', facecolor='none'))
-        # ax.add_patch(patches.Rectangle((Cj, Ci), Cw, Ch, linewidth=1, edgecolor='black', facecolor='none'))
+        ax.add_patch(patches.Rectangle((Cj, Ci), Cw, Ch, linewidth=1, edgecolor='black', facecolor='none'))
         im = denormalize(ts_imgs[i].detach().clone())
         # im = torch.max(torch.min(im, torch.ones_like(im)), torch.zeros_like(im))
         plt.imshow(transforms.ToPILImage()(im).convert('RGB'))
