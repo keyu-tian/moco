@@ -21,6 +21,8 @@ class ModelMoCo(nn.Module):
         
         # create the encoders
         if on_imagenet:
+            if sbn:
+                pass    # todo: 怎么办，现在gb256 8卡会炸1080ti
             norm_layer = nn.BatchNorm2d
         else:
             bn_splits = 1 if sbn else 8
