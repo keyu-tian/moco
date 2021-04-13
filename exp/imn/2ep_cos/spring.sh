@@ -15,6 +15,7 @@ srun \
 python -u -m main_cifar \
 --main_py_rel_path="${REL_PATH}" \
 --exp_dirname="${EXP_DIR}" \
+--log_freq=5 \
 --dataset=imagenet \
 --arch=resnet50 \
 --ds_root="/mnt/lustre/share/images" \

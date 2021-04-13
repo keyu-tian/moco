@@ -260,24 +260,25 @@ def main_process(args, dist: TorchDistManager):
         if rk == dist.rank:
             master_echo(True, f'{time_str()}[rk{dist.rank:2d}] construct dataloaders... ', tail='\\c')
             
-            pret_data = InputPairSet(dataset_meta.clz(root=args.ds_root, train=True, transform=pret_transform, download=False))
+            ds_clz = dataset_meta.clz
+            pret_data = InputPairSet(ds_clz(root=args.ds_root, train=True, transform=pret_transform, download=False))
             pret_sp = DistributedSampler(pret_data, **dist_sp_kw) if args.torch_ddp else None
             pret_ld = DataLoader(pret_data, batch_size=args.batch_size, sampler=pret_sp, shuffle=(pret_sp is None), drop_last=(pret_sp is None), **data_kw)
             pret_iters = len(pret_ld)
             lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {args.ds_root}')
 
             if not on_imagenet:
-                knn_data = CIFAR10(root=args.ds_root, train=True, transform=test_transform, download=False)
+                knn_data = ds_clz(root=args.ds_root, train=True, transform=test_transform, download=False)
                 knn_ld = DataLoader(knn_data, batch_size=args.knn_ld_or_test_ld_batch_size, shuffle=False, drop_last=False, **data_kw)
                 knn_iters = len(knn_ld)
                 lg.info(f'=> [main]: prepare knn_data  (iters={knn_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
             
-            test_data = CIFAR10(root=args.ds_root, train=False, transform=test_transform, download=False)
+            test_data = ds_clz(root=args.ds_root, train=False, transform=test_transform, download=False)
             test_ld = DataLoader(test_data, batch_size=args.knn_ld_or_test_ld_batch_size, shuffle=False, drop_last=False, **data_kw)
             test_iters = len(test_ld)
             lg.info(f'=> [main]: prepare test_data (iters={test_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
             
-            eval_data = CIFAR10(root=args.ds_root, train=True, transform=eval_transform, download=False)
+            eval_data = ds_clz(root=args.ds_root, train=True, transform=eval_transform, download=False)
             eval_sp = DistributedSampler(eval_data, **dist_sp_kw) if args.torch_ddp else None
             eval_ld = DataLoader(eval_data, batch_size=args.batch_size, sampler=eval_sp, shuffle=(eval_sp is None), drop_last=(eval_sp is None), **data_kw)
             eval_iters = len(eval_ld)
