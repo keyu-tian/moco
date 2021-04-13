@@ -281,7 +281,7 @@ def main_process(args, dist: TorchDistManager):
             
             eval_data = ds_clz(root=args.ds_root, train=True, transform=eval_transform, download=False)
             eval_sp = DistributedSampler(eval_data, **dist_sp_kw) if args.torch_ddp else None
-            eval_ld = DataLoader(eval_data, batch_size=args.batch_size, sampler=eval_sp, shuffle=(eval_sp is None), drop_last=True, **data_kw)
+            eval_ld = DataLoader(eval_data, batch_size=args.batch_size, sampler=eval_sp, shuffle=(eval_sp is None), drop_last=False **data_kw)
             eval_iters = len(eval_ld)
             lg.info(f'=> [main]: prepare eval_data (iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
             
