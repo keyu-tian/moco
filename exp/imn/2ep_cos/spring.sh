@@ -23,8 +23,8 @@ python -u -m main_cifar \
 --moco_m=0.999 \
 --moco_t=0.2 \
 --epochs=2 \
---batch_size=256 \
---knn_ld_or_test_ld_batch_size=256 \
+--batch_size=128 \
+--knn_ld_or_test_ld_batch_size=128 \
 --coslr \
 --warmup \
 --eval_epochs=2 \
