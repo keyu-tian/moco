@@ -256,6 +256,7 @@ def main_process(args, dist: TorchDistManager):
         assert args.batch_size % dist.world_size == 0
         args.global_batch_size = args.batch_size
         args.batch_size //= dist.world_size
+        args.global_eval_batch_size = args.eval_batch_size
         args.eval_batch_size //= dist.world_size
 
     for rk in range(dist.world_size):
