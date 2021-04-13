@@ -17,7 +17,7 @@ python -u -m main_cifar \
 --exp_dirname="${EXP_DIR}" \
 --dataset=cifar10 \
 --arch=resnet50 \
---ds_root=None \
+--ds_root="/mnt/lustre/share/images" \
 --moco_k=65536 \
 --moco_m=0.999 \
 --moco_t=0.2 \
@@ -29,9 +29,9 @@ python -u -m main_cifar \
 --eval_epochs=100 \
 --eval_coslr \
 --eval_warmup \
+--mlp \
 --num_workers=4 \
 --pin_mem \
---mlp \
 #--moco_symm \
 #--sbn \
 #--seed_base=0 \
