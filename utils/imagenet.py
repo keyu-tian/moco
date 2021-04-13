@@ -122,7 +122,7 @@ class ImageNetDataset120(ImageNetDataset):
         self.metas = []
         for img_path, label in me:
             label = idx120.index(label)
-            if train and count[label] == 255:
+            if train and count[label] == 256:
                 continue
             count[label] += 1
             self.metas.append((img_path, label))
