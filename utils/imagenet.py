@@ -14,7 +14,7 @@ import numpy as np
 
 
 def pil_loader(img_bytes):
-    # warnings.filterwarnings("ignore", "(Possibly )?corrupt EXIF data", UserWarning)
+    warnings.filterwarnings("ignore", "(Possibly )?corrupt EXIF data", UserWarning)
     buff = io.BytesIO(img_bytes)
     with Image.open(buff) as img:
         img = img.convert('RGB')
