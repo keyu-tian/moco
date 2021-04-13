@@ -66,7 +66,10 @@ class InputPairSet(Dataset):
         if not self.has_attr_data:
             assert hasattr(origin_dataset, 'get_untransformed_image')
         assert hasattr(origin_dataset, 'transform') and origin_dataset.transform is not None
-        
+    
+    def __len__(self):
+        return len(self.origin_dataset)
+    
     def __getitem__(self, index):
         if self.has_attr_data:
             pil_img = self.origin_dataset.data[index]
