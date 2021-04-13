@@ -25,6 +25,8 @@ python -u -m main_cifar \
 --moco_t=0.2 \
 --epochs=2 \
 --batch_size=256 \
+--lr=0.03 \
+--eval_lr=30 \
 --knn_ld_or_test_ld_batch_size=256 \
 --coslr \
 --warmup \
