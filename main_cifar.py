@@ -263,7 +263,7 @@ def main_process(args, dist: TorchDistManager):
             ds_clz = dataset_meta.clz
             pret_data = InputPairSet(ds_clz(root=args.ds_root, train=True, transform=pret_transform, download=False))
             pret_sp = DistributedSampler(pret_data, **dist_sp_kw) if args.torch_ddp else None
-            # todo: drop_last=True
+            # todo: drop_last=True还会出现K不整除inp.shape[0]的情况吗？如果左下角的/mnt/lustre/tiankeyu/data_t1/moco_imn/exp/imn/200ep_cos_4gpu/实验没因为这个报error就说明没问题了
             pret_ld = DataLoader(pret_data, batch_size=args.batch_size, sampler=pret_sp, shuffle=(pret_sp is None), drop_last=True, **data_kw)
             pret_iters = len(pret_ld)
             lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {args.ds_root}')
