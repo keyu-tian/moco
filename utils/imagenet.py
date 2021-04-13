@@ -1,5 +1,6 @@
 import pathlib
 import warnings
+from collections import defaultdict
 
 try:
     import mc
@@ -115,16 +116,21 @@ class ImageNetDataset120(ImageNetDataset):
         assert len(set(idx120)) == 120
         
         # train size: 153487, test size: 6000
+        # 120 * 250 = 30000
+        count = defaultdict(int)
         me = list(filter(lambda tu: tu[1] in idx120, self.metas))
         self.metas = []
         for img_path, label in me:
             label = idx120.index(label)
+            count[label] += 1
+            if train and count[label] == 250:
+                continue
             self.metas.append((img_path, label))
         
         self.metas = tuple(self.metas)
         self.targets = tuple(m[1] for m in self.metas)
         self.num_data = len(self.targets)
-        assert self.num_data == (153487 if train else 6000)
+        assert self.num_data == (30000 if train else 6000)
 
 # def create_imagenet_dataloaders(cfg_dataset, num_workers, batch_size, input_size=224, test_resize=256):
 #     """
