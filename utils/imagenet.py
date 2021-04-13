@@ -116,13 +116,14 @@ class ImageNetDataset120(ImageNetDataset):
         assert len(set(idx120)) == 120
         
         # train size: 153487, test size: 6000
-        # 120 * 256 = 30720
+        # 120 * 512 = 61440
+        target_num_per_cls = 512
         count = defaultdict(int)
         me = list(filter(lambda tu: tu[1] in idx120, self.metas))
         self.metas = []
         for img_path, label in me:
             label = idx120.index(label)
-            if train and count[label] == 256:
+            if train and count[label] == target_num_per_cls:
                 continue
             count[label] += 1
             self.metas.append((img_path, label))
@@ -130,7 +131,7 @@ class ImageNetDataset120(ImageNetDataset):
         self.metas = tuple(self.metas)
         self.targets = tuple(m[1] for m in self.metas)
         self.num_data = len(self.targets)
-        assert self.num_data == (30720 if train else 6000)
+        assert self.num_data == (120 * target_num_per_cls if train else 6000)
 
 # def create_imagenet_dataloaders(cfg_dataset, num_workers, batch_size, input_size=224, test_resize=256):
 #     """
