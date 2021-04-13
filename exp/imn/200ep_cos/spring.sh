@@ -15,7 +15,7 @@ srun \
 python -u -m main_cifar \
 --main_py_rel_path="${REL_PATH}" \
 --exp_dirname="${EXP_DIR}" \
---dataset=cifar10 \
+--dataset=imagenet \
 --arch=resnet50 \
 --ds_root="/mnt/lustre/share/images" \
 --moco_k=65536 \

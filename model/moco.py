@@ -23,7 +23,7 @@ class ModelMoCo(nn.Module):
         if on_imagenet:
             norm_layer = nn.BatchNorm2d
         else:
-            bn_splits = 1 if sbn else 8 # todo: torch_ddp
+            bn_splits = 1 if sbn else 8
             norm_layer = partial(SplitBatchNorm, num_splits=bn_splits) if bn_splits > 1 else nn.BatchNorm2d
         
         self.encoder_q = model_entry(model_name=arch, num_classes=dim, norm_layer=norm_layer)

@@ -260,7 +260,6 @@ def main_process(args, dist: TorchDistManager):
         if rk == dist.rank:
             master_echo(True, f'{time_str()}[rk{dist.rank:2d}] construct dataloaders... ', tail='\\c')
             
-            # todo: imagenet 用什么 loader啊？参考下moco原代码
             pret_data = InputPairSet(dataset_meta.clz(root=args.ds_root, train=True, transform=pret_transform, download=False))
             pret_sp = DistributedSampler(pret_data, **dist_sp_kw) if args.torch_ddp else None
             pret_ld = DataLoader(pret_data, batch_size=args.batch_size, sampler=pret_sp, shuffle=(pret_sp is None), drop_last=(pret_sp is None), **data_kw)
