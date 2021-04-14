@@ -12,13 +12,13 @@ python -u -m main \
 --exp_dirname="${EXP_DIR}" \
 --log_freq=4 \
 --torch_ddp \
---dataset=imagenet120 \
+--dataset=imagenet \
 --arch=resnet50 \
 --ds_root="/mnt/lustre/share/images" \
---moco_k=8192 \
+--moco_k=65536 \
 --moco_m=0.999 \
 --moco_t=0.2 \
---epochs=800 \
+--epochs=400 \
 --batch_size=256 \
 --lr=0.03 \
 --knn_ld_or_test_ld_batch_size=256 \

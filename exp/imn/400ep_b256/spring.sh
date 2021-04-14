@@ -12,10 +12,10 @@ python -u -m main \
 --exp_dirname="${EXP_DIR}" \
 --log_freq=4 \
 --torch_ddp \
---dataset=imagenet120 \
+--dataset=imagenet \
 --arch=resnet50 \
 --ds_root="/mnt/lustre/share/images" \
---moco_k=8192 \
+--moco_k=65536 \
 --moco_m=0.999 \
 --moco_t=0.2 \
 --epochs=400 \

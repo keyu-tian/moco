@@ -1,4 +1,4 @@
-sleep "${2:-"0"}"
+sleep "${1:-"0"}"
 
 REL_PATH=../../../
 DIR_NAME="${PWD##*/}"
@@ -12,13 +12,13 @@ python -u -m main \
 --exp_dirname="${EXP_DIR}" \
 --log_freq=4 \
 --torch_ddp \
---dataset=imagenet120 \
+--dataset=imagenet \
 --arch=resnet50 \
 --ds_root="/mnt/lustre/share/images" \
---moco_k=8192 \
+--moco_k=65536 \
 --moco_m=0.999 \
 --moco_t=0.2 \
---epochs=400 \
+--epochs=800 \
 --batch_size=256 \
 --lr=0.03 \
 --knn_ld_or_test_ld_batch_size=256 \
@@ -39,12 +39,9 @@ EOF
 #--seed_base=0 \
 #--resume_ckpt=
 
-PYTHONPATH=${PYTHONPATH}:${REL_PATH} \
-srun \
---mpi=pmi2 -p $1 --comment=spring-submit -n4 --gres=gpu:4 \
---ntasks-per-node=4 \
+PYTHONPATH=${PYTHONPATH}:${REL_PATH} GLOG_vmodule=MemcachedClient=-1 \
+spring.submit run -r --gpu -n4 \
 --cpus-per-task=6 \
---qos=non-preemptable \
 --job-name "${DIR_NAME}----${EXP_DIR}" "${cmd_str}"
 
 failed=$?
