@@ -32,7 +32,7 @@ python -u -m main \
 --mlp \
 --num_workers=4 \
 --pin_mem \
---sbn \
+--sbn
 EOF
 )
 #--moco_symm \
