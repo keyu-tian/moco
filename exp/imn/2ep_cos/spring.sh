@@ -15,7 +15,7 @@ python -u -m main \
 --dataset=imagenet10 \
 --arch=resnet50 \
 --ds_root="/mnt/lustre/share/images" \
---moco_k=65536 \
+--moco_k=8192 \
 --moco_m=0.999 \
 --moco_t=0.2 \
 --epochs=2 \
