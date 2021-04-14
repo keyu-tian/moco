@@ -40,7 +40,7 @@ EOF
 #--resume_ckpt=
 
 PYTHONPATH=${PYTHONPATH}:${REL_PATH} GLOG_vmodule=MemcachedClient=-1 \
-spring.submit run -r --gpu -n4 \
+spring.submit run --gpu -n4 \
 --cpus-per-task=6 \
 --job-name "${DIR_NAME}----${EXP_DIR}" "${cmd_str}"
 
