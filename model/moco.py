@@ -22,8 +22,9 @@ class ModelMoCo(nn.Module):
         # create the encoders
         if on_imagenet:
             if sbn:
-                pass    # todo: 怎么办，现在gb256 8卡会炸1080ti；现在已经把b256改成b128了；moco_k从65536改成2048。已经64了！
-            norm_layer = nn.BatchNorm2d
+                norm_layer = nn.BatchNorm2d # todo: SyncBN?
+            else:
+                norm_layer = nn.BatchNorm2d
         else:
             bn_splits = 1 if sbn else 8
             norm_layer = partial(SplitBatchNorm, num_splits=bn_splits) if bn_splits > 1 else nn.BatchNorm2d

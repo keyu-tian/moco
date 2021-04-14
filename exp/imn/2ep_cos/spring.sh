@@ -1,21 +1,18 @@
-sleep "${2:-"0"}"
+sleep "${1:-"0"}"
 
 REL_PATH=../../../
 DIR_NAME="${PWD##*/}"
-EXP_DIR="exp-$(date "+%Y-%m%d-%H%M%S")-$1"
+EXP_DIR="exp-$(date "+%Y-%m%d-%H%M%S")"
 
 python "${REL_PATH}monitor.py" "${EXP_DIR}" &
 
-PYTHONPATH=${PYTHONPATH}:${REL_PATH} GLOG_vmodule=MemcachedClient=-1 \
-spring.submit run -r --gpu -n4 \
---cpus-per-task=6 \
---job-name "${DIR_NAME}----${EXP_DIR}" \
-python main_cifar.py \
+cmd_str=$(cat << EOF
+python -u -m main \
 --main_py_rel_path="${REL_PATH}" \
 --exp_dirname="${EXP_DIR}" \
---log_freq=5 \
+--log_freq=4 \
 --torch_ddp \
---dataset=imagenet \
+--dataset=imagenet120 \
 --arch=resnet50 \
 --ds_root="/mnt/lustre/share/images" \
 --moco_k=65536 \
@@ -24,8 +21,9 @@ python main_cifar.py \
 --epochs=2 \
 --batch_size=256 \
 --lr=0.03 \
---eval_lr=30 \
 --knn_ld_or_test_ld_batch_size=256 \
+--eval_batch_size=256 \
+--eval_lr=30 \
 --coslr \
 --warmup \
 --eval_epochs=2 \
@@ -35,10 +33,16 @@ python main_cifar.py \
 --num_workers=4 \
 --pin_mem \
 --sbn \
+EOF
+)
 #--moco_symm \
 #--seed_base=0 \
-
 #--resume_ckpt=
+
+PYTHONPATH=${PYTHONPATH}:${REL_PATH} GLOG_vmodule=MemcachedClient=-1 \
+spring.submit run -r --gpu -n4 \
+--cpus-per-task=6 \
+--job-name "${DIR_NAME}----${EXP_DIR}" "${cmd_str}"
 
 failed=$?
 echo "failed=${failed}"
