@@ -269,24 +269,24 @@ def main_process(args, dist: TorchDistManager):
             # todo: drop_last=True还会出现K不整除inp.shape[0]的情况吗？如果左下角的/mnt/lustre/tiankeyu/data_t1/moco_imn/exp/imn/200ep_cos_4gpu/实验没因为这个报error就说明没问题了
             pret_ld = DataLoader(pret_data, batch_size=args.batch_size, sampler=pret_sp, shuffle=(pret_sp is None), drop_last=True, **data_kw)
             pret_iters = len(pret_ld)
-            lg.info(f'=> [main]: prepare pret_data (iters={pret_iters}, ddp={args.torch_ddp}): @ {args.ds_root}')
+            lg.info(f'=> [main]: prepare pret_data (len={len(pret_data)}, bs={args.batch_size}, iters={pret_iters}, ddp={args.torch_ddp}): @ {args.ds_root}')
 
             if not on_imagenet:
                 knn_data = ds_clz(root=args.ds_root, train=True, transform=test_transform, download=False)
                 knn_ld = DataLoader(knn_data, batch_size=args.knn_ld_or_test_ld_batch_size, shuffle=False, drop_last=False, **data_kw)
                 knn_iters = len(knn_ld)
-                lg.info(f'=> [main]: prepare knn_data  (iters={knn_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
+                lg.info(f'=> [main]: prepare knn_data  (len={len(knn_data)}, bs={args.knn_ld_or_test_ld_batch_size}, iters={knn_iters}, ddp=False for knn): @ {args.dataset}')
             
             test_data = ds_clz(root=args.ds_root, train=False, transform=test_transform, download=False)
             test_ld = DataLoader(test_data, batch_size=args.knn_ld_or_test_ld_batch_size, shuffle=False, drop_last=False, **data_kw)
             test_iters = len(test_ld)
-            lg.info(f'=> [main]: prepare test_data (iters={test_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
+            lg.info(f'=> [main]: prepare test_data (len={len(test_data)}, bs={args.knn_ld_or_test_ld_batch_size}, iters={test_iters}, ddp=False for test): @ {args.dataset}')
             
             eval_data = ds_clz(root=args.ds_root, train=True, transform=eval_transform, download=False)
             eval_sp = DistributedSampler(eval_data, **dist_sp_kw) if args.torch_ddp else None
             eval_ld = DataLoader(eval_data, batch_size=args.eval_batch_size, sampler=eval_sp, shuffle=(eval_sp is None), drop_last=False, **data_kw)
             eval_iters = len(eval_ld)
-            lg.info(f'=> [main]: prepare eval_data (iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
+            lg.info(f'=> [main]: prepare eval_data (len={len(eval_data)}, bs={args.eval_batch_size}, iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
             
             master_echo(True, f'    finished!', '36', tail='')
         
@@ -328,8 +328,8 @@ def main_process(args, dist: TorchDistManager):
         lnr_eval_model = lnr_eval_model.cuda()
     
     if args.eval_resume_ckpt is None:
-        if not args.pret_verbose and not dist.is_master():
-            l_tb_lg._verbose = False
+        l_tb_lg._verbose = True # todo: 先搞成True，看看DDP有没有bug。如果线没重合就bug。
+        # l_tb_lg._verbose = dist.is_master() or (args.pret_verbose and not args.torch_ddp)
         if on_imagenet:
             pret_knn_args = None
         else:
@@ -357,8 +357,9 @@ def main_process(args, dist: TorchDistManager):
         assert len(msg.unexpected_keys) == 0 and all(k.startswith('fc.') for k in msg.missing_keys)
     else:
         raise NotImplementedError
-    
-    l_tb_lg._verbose = True
+
+    l_tb_lg._verbose = True # todo: 先搞成True，看看DDP有没有bug。如果线没重合就bug。
+    # l_tb_lg._verbose = dist.is_master() or not args.torch_ddp
     pretrain_or_linear_eval(
         pret_res_str, args.num_classes, ExpMeta(
             args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.eval_resume_ckpt,

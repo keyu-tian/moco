@@ -75,5 +75,5 @@ def create_files(args, dist):
     return (
         DistLogger(logger, verbose=dist.is_master()),
         DistLogger(global_tensorboard_logger, verbose=dist.is_master()),
-        DistLogger(local_tensorboard_logger, verbose=not args.torch_ddp)
+        DistLogger(local_tensorboard_logger, verbose=True)
     )
