@@ -6,12 +6,10 @@ EXP_DIR="exp-$(date "+%Y-%m%d-%H%M%S")-$1"
 
 python "${REL_PATH}monitor.py" "${EXP_DIR}" &
 
-PYTHONPATH=${PYTHONPATH}:${REL_PATH} \
-srun \
---job-name "${DIR_NAME}----${EXP_DIR}" \
---mpi=pmi2 -p $1 --comment=spring-submit -n8 --gres=gpu:8 \
---ntasks-per-node=8 \
+PYTHONPATH=${PYTHONPATH}:${REL_PATH} GLOG_vmodule=MemcachedClient=-1 \
+spring.submit run -r --gpu -n4 \
 --cpus-per-task=6 \
+--job-name "${DIR_NAME}----${EXP_DIR}" \
 python -u -m main_cifar \
 --main_py_rel_path="${REL_PATH}" \
 --exp_dirname="${EXP_DIR}" \
