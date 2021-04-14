@@ -558,7 +558,7 @@ def linear_eval(
         eval_iters: int, eval_ld: DataLoader, eval_dist_sp: DistributedSampler, te_iters: int, te_ld: DataLoader,
 ):
     if meta.torch_ddp:
-        encoder_q: DistributedDataParallel = DistributedDataParallel(encoder_q.cuda(), device_ids=[dist.dev_idx], output_device=dist.dev_idx)
+        encoder_q: DistributedDataParallel = DistributedDataParallel(encoder_q.cuda(), device_ids=[dist.dev_idx], output_device=dist.dev_idx, find_unused_parameters=True)
     else:
         encoder_q: torch.nn.Module = encoder_q.cuda()
     params = filter_params(encoder_q) if meta.nowd else encoder_q.parameters()
