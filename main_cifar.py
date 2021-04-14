@@ -328,8 +328,7 @@ def main_process(args, dist: TorchDistManager):
         lnr_eval_model = lnr_eval_model.cuda()
     
     if args.eval_resume_ckpt is None:
-        l_tb_lg._verbose = True # todo: 先搞成True，看看DDP有没有bug。如果线没重合就bug。
-        # l_tb_lg._verbose = dist.is_master() or (args.pret_verbose and not args.torch_ddp)
+        l_tb_lg._verbose = dist.is_master() or (args.pret_verbose and not args.torch_ddp)
         if on_imagenet:
             pret_knn_args = None
         else:
@@ -358,8 +357,7 @@ def main_process(args, dist: TorchDistManager):
     else:
         raise NotImplementedError
 
-    l_tb_lg._verbose = True # todo: 先搞成True，看看DDP有没有bug。如果线没重合就bug。
-    # l_tb_lg._verbose = dist.is_master() or not args.torch_ddp
+    l_tb_lg._verbose = dist.is_master() or not args.torch_ddp
     pretrain_or_linear_eval(
         pret_res_str, args.num_classes, ExpMeta(
             args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.eval_resume_ckpt,
@@ -514,7 +512,8 @@ def pretrain_or_linear_eval(
             best_test_acc5 = test_acc5
             # todo: save
             # torch.save(state_dict, os.path.join(meta.exp_root, f'{prefix}_best.pth'))
-        # torch.save(state_dict, os.path.join(meta.exp_root, f'{prefix}_latest.pth'))
+        if epoch == meta.epochs - 1 and dist.is_master():
+            torch.save(state_dict, os.path.join(meta.exp_root, f'{prefix}_acc{test_acc1:5.2f}.pth'))
         
         remain_time, finish_time = epoch_speed.time_preds(meta.epochs - (epoch + 1))
         lg.info(
@@ -523,7 +522,11 @@ def pretrain_or_linear_eval(
         )
         if dist.is_master():
             lr_str = f'{optimizer.param_groups[0]["lr"] / meta.lr:.1e}'
-            kw = {test_acc_name: test_acc1, 'lr' if is_pretrain else 'v_lr': lr_str}
+            kw = {'lr' if is_pretrain else 'v_lr': lr_str}
+            if test_acc1 >= 0:
+                kw[test_acc_name] = test_acc1
+            else:
+                kw[test_acc_name] = -tr_loss_mov_avg
             upd_seatable_file(
                 meta.exp_root, dist, pr=(epoch + 1) / meta.epochs,
                 rem=remain_time.seconds, end_t=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + remain_time.seconds)),
@@ -541,12 +544,20 @@ def pretrain_or_linear_eval(
     
     topk_test_acc1 = sum(topk_acc1s) / len(topk_acc1s)
     dt = time.time() - loop_start_t
-    if not meta.torch_ddp:
+    if meta.torch_ddp:
+        perform_dict = ''
+        res_str = (
+            f' avg tr losses  {tr_loss_mov_avg:.3f}\n'
+            f' best     acc5s @ {best_test_acc5:.3f}\n'
+            f' mean-top acc1s @ {topk_test_acc1:.3f}\n'
+            f' best     acc1s @ {best_test_acc1:.3f}'
+        )
+        seatable_acc = best_test_acc1
+    else:
         topk_accs = dist.dist_fmt_vals(topk_test_acc1, None)
         best_accs = dist.dist_fmt_vals(best_test_acc1, None)
         best_acc5s = dist.dist_fmt_vals(best_test_acc5, None)
         tr_loss_mov_avgs = dist.dist_fmt_vals(tr_loss_mov_avg, None)
-        [g_tb_lg.add_scalar(f'{prefix}/{test_acc_name.replace("acc", "best")}1', best_accs.mean().item(), e) for e in [epoch_start, meta.epochs]]
         perform_dict = pf({
             des: f'topk={ta.item():.3f}, best={ba.item():.3f}'
             for des, ta, ba in zip(meta.descs, topk_accs, best_accs)
@@ -557,32 +568,33 @@ def pretrain_or_linear_eval(
             f' mean-top acc1s @ (max={topk_accs.max():.3f}, mean={topk_accs.mean():.3f}, std={topk_accs.std():.3f}) {str(topk_accs).replace(chr(10), " ")})\n'
             f' best     acc1s @ (max={best_accs.max():.3f}, mean={best_accs.mean():.3f}, std={best_accs.std():.3f}) {str(best_accs).replace(chr(10), " ")})'
         )
-        
-        if not is_pretrain:
-            pret_res_str = pretrain_knn_args_or_pret_res_str
-            lg.info(f'==> pretrain.results: \n{pret_res_str}\n')
-            
-        lg.info(
-            f'==> {prefix} finished,'
-            f' total time cost: {dt / 60:.2f}min ({dt / 60 / 60:.2f}h)'
-            f' topk: {pf([round(x, 2) for x in topk_acc1s])}\n'
-            f' performance: \n{perform_dict}\n{res_str}'
+        seatable_acc = best_accs.mean().item()
+
+    if not is_pretrain:
+        pret_res_str = pretrain_knn_args_or_pret_res_str
+        lg.info(f'==> pretrain.results: \n{pret_res_str}\n')
+
+    [g_tb_lg.add_scalar(f'{prefix}/{test_acc_name.replace("acc", "best")}1', seatable_acc, e) for e in [epoch_start, meta.epochs]]
+    lg.info(
+        f'==> {prefix} finished,'
+        f' total time cost: {dt / 60:.2f}min ({dt / 60 / 60:.2f}h)'
+        f' topk: {pf([round(x, 2) for x in topk_acc1s])}\n'
+        f' performance: \n{perform_dict}\n{res_str}'
+    )
+
+    if dist.is_master():
+        kw = {test_acc_name: seatable_acc, 'lr' if is_pretrain else 'v_lr': f'{meta.lr:.1g}'}
+        upd_seatable_file(
+            meta.exp_root, dist, pr=1., rem=0,
+            end_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            **kw
         )
-        
-        if dist.is_master():
-            kw = {test_acc_name: best_accs.mean().item(), 'lr' if is_pretrain else 'v_lr': f'{meta.lr:.1g}'}
-            upd_seatable_file(
-                meta.exp_root, dist, pr=1., rem=0,
-                end_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                **kw
-            )
-            lines = res_str.splitlines()
-            strs = ''.join([f'# {l}\n' for l in lines])
-            with open(run_shell_name, 'a') as fp:
-                print(f'\n# {prefix} {meta.exp_dirname}:\n{strs}', file=fp)
-        return res_str
-    else:
-        assert False
+        lines = res_str.splitlines()
+        strs = ''.join([f'# {l}\n' for l in lines])
+        with open(run_shell_name, 'a') as fp:
+            print(f'\n# {prefix} {meta.exp_dirname}:\n{strs}', file=fp)
+    
+    return res_str
 
 
 # one epoch
