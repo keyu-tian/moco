@@ -41,7 +41,7 @@ EOF
 
 PYTHONPATH=${PYTHONPATH}:${REL_PATH} \
 srun \
---mpi=pmi2 -p $1 -n4 --gres=gpu:4 \
+--mpi=pmi2 -p $1 --comment=spring-submit -n4 --gres=gpu:4 \
 --ntasks-per-node=4 \
 --cpus-per-task=6 \
 --qos=non-preemptable \
