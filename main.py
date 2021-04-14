@@ -27,7 +27,7 @@ from meta import seatable_fname, run_shell_name
 from model.moco import ModelMoCo
 from utils.data import dataset_metas, InputPairSet
 from utils.dist import TorchDistManager
-from utils.file import create_files
+from utils.file import create_loggers
 from utils.misc import time_str, filter_params, set_seed, AverageMeter, TopKHeap, adjust_learning_rate, accuracy, master_echo
 
 parser = argparse.ArgumentParser(description='Train MoCo on CIFAR-10')
@@ -87,7 +87,7 @@ parser.add_argument('--eval_nowd', action='store_true', help='no wd for params o
 parser.add_argument('--eval_grad_clip', default='5', type=str, help='max grad norm')
 
 # data
-parser.add_argument('--dataset', default='cifar10', choices=list(dataset_metas.keys()))
+parser.add_argument('--dataset', default='cifar10') #, choices=list(dataset_metas.keys()))
 parser.add_argument('--ds_root', default='/mnt/lustre/share/images', help='dataset root dir')
 parser.add_argument('--num_workers', default=4, type=int)
 parser.add_argument('--pin_mem', action='store_true')
@@ -152,11 +152,21 @@ def main_process(args, dist: TorchDistManager):
     args.loc_desc = args.descs[dist.rank]
     
     args.dataset = args.dataset.strip().lower()
-    dataset_meta = dataset_metas[args.dataset]
     on_imagenet = 'imagenet' in args.dataset
+    sub_imagenet = on_imagenet and args.dataset != 'imagenet'
+    if sub_imagenet:
+        num_classes = int(args.dataset.replace('imagenet', ''))
+        dataset_meta = dataset_metas['subimagenet']
+        dataset_meta = dataset_meta._replace(
+            num_classes=num_classes,
+            train_val_set_size=dataset_meta.train_val_set_size * num_classes,
+            test_set_size=dataset_meta.test_set_size * num_classes,
+        )
+    else:
+        dataset_meta = dataset_metas[args.dataset]
     args.num_classes = dataset_meta.num_classes
     
-    lg, g_tb_lg, l_tb_lg = create_files(args, dist)
+    lg, g_tb_lg, l_tb_lg = create_loggers(args, dist)
     lg: Logger = lg  # just for the code completion (actually is `DistLogger`)
     g_tb_lg: SummaryWriter = g_tb_lg  # just for the code completion (actually is `DistLogger`)
     l_tb_lg: SummaryWriter = l_tb_lg  # just for the code completion (actually is `DistLogger`)
@@ -249,7 +259,10 @@ def main_process(args, dist: TorchDistManager):
     # ds_root += f'_{ds_choice}'
     # master_echo(dist.is_master(), f'[dataset] choice={ds_choice}')
     
-    data_kw = dict(num_workers=args.num_workers, pin_memory=args.pin_mem)
+    set_kw = dict(root=args.ds_root, download=False)
+    if sub_imagenet:
+        set_kw['num_classes'] = args.num_classes
+    loader_kw = dict(num_workers=args.num_workers, pin_memory=args.pin_mem)
     dist_sp_kw = dict(num_replicas=dist.world_size, rank=dist.rank, shuffle=True)
 
     if args.torch_ddp:
@@ -264,27 +277,27 @@ def main_process(args, dist: TorchDistManager):
             master_echo(True, f'{time_str()}[rk{dist.rank:2d}] construct dataloaders... ', tail='\\c')
             
             ds_clz = dataset_meta.clz
-            pret_data = InputPairSet(ds_clz(root=args.ds_root, train=True, transform=pret_transform, download=False))
+            pret_data = InputPairSet(ds_clz(train=True, transform=pret_transform, **set_kw))
             pret_sp = DistributedSampler(pret_data, **dist_sp_kw) if args.torch_ddp else None
             # todo: drop_last=True还会出现K不整除inp.shape[0]的情况吗？如果左下角的/mnt/lustre/tiankeyu/data_t1/moco_imn/exp/imn/200ep_cos_4gpu/实验没因为这个报error就说明没问题了
-            pret_ld = DataLoader(pret_data, batch_size=args.batch_size, sampler=pret_sp, shuffle=(pret_sp is None), drop_last=True, **data_kw)
+            pret_ld = DataLoader(pret_data, batch_size=args.batch_size, sampler=pret_sp, shuffle=(pret_sp is None), drop_last=True, **loader_kw)
             pret_iters = len(pret_ld)
             lg.info(f'=> [main]: prepare pret_data (len={len(pret_data)}, bs={args.batch_size}, iters={pret_iters}, ddp={args.torch_ddp}): @ {args.ds_root}')
 
             if not on_imagenet:
-                knn_data = ds_clz(root=args.ds_root, train=True, transform=test_transform, download=False)
-                knn_ld = DataLoader(knn_data, batch_size=args.knn_ld_or_test_ld_batch_size, shuffle=False, drop_last=False, **data_kw)
+                knn_data = ds_clz(train=True, transform=test_transform, **set_kw)
+                knn_ld = DataLoader(knn_data, batch_size=args.knn_ld_or_test_ld_batch_size, shuffle=False, drop_last=False, **loader_kw)
                 knn_iters = len(knn_ld)
                 lg.info(f'=> [main]: prepare knn_data  (len={len(knn_data)}, bs={args.knn_ld_or_test_ld_batch_size}, iters={knn_iters}, ddp=False for knn): @ {args.dataset}')
             
-            test_data = ds_clz(root=args.ds_root, train=False, transform=test_transform, download=False)
-            test_ld = DataLoader(test_data, batch_size=args.knn_ld_or_test_ld_batch_size, shuffle=False, drop_last=False, **data_kw)
+            test_data = ds_clz(train=False, transform=test_transform, **set_kw)
+            test_ld = DataLoader(test_data, batch_size=args.knn_ld_or_test_ld_batch_size, shuffle=False, drop_last=False, **loader_kw)
             test_iters = len(test_ld)
             lg.info(f'=> [main]: prepare test_data (len={len(test_data)}, bs={args.knn_ld_or_test_ld_batch_size}, iters={test_iters}, ddp=False for test): @ {args.dataset}')
             
-            eval_data = ds_clz(root=args.ds_root, train=True, transform=eval_transform, download=False)
+            eval_data = ds_clz(train=True, transform=eval_transform, **set_kw)
             eval_sp = DistributedSampler(eval_data, **dist_sp_kw) if args.torch_ddp else None
-            eval_ld = DataLoader(eval_data, batch_size=args.eval_batch_size, sampler=eval_sp, shuffle=(eval_sp is None), drop_last=False, **data_kw)
+            eval_ld = DataLoader(eval_data, batch_size=args.eval_batch_size, sampler=eval_sp, shuffle=(eval_sp is None), drop_last=False, **loader_kw)
             eval_iters = len(eval_ld)
             lg.info(f'=> [main]: prepare eval_data (len={len(eval_data)}, bs={args.eval_batch_size}, iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
             
@@ -308,24 +321,13 @@ def main_process(args, dist: TorchDistManager):
         K=args.moco_k,  # queue size
         m=args.moco_m,  # ema momentum
         T=args.moco_t,  # temperature
-        sbn=args.sbn,
+        sbn=args.sbn,   # actually, SyncBatchNorm is not used in mocov2's official implementation
         mlp=args.mlp,
         symmetric=args.moco_symm,
         init=args.init
     )
     pretrain_model = ModelMoCo(dim=args.moco_dim, **model_kw)
     lnr_eval_model = ModelMoCo(dim=args.num_classes, **model_kw)
-    if not on_imagenet and args.sbn:
-        # actually, SyncBatchNorm is not used in mocov2's official implementation
-        pass
-        # pretrain_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(pretrain_model)
-        # lnr_eval_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(lnr_eval_model)
-    if args.torch_ddp:
-        pretrain_model = DistributedDataParallel(pretrain_model.cuda(), device_ids=[dist.dev_idx], output_device=dist.dev_idx)
-        lnr_eval_model = DistributedDataParallel(lnr_eval_model.cuda(), device_ids=[dist.dev_idx], output_device=dist.dev_idx)
-    else:
-        pretrain_model = pretrain_model.cuda()
-        lnr_eval_model = lnr_eval_model.cuda()
     
     if args.eval_resume_ckpt is None:
         l_tb_lg._verbose = dist.is_master() or (args.pret_verbose and not args.torch_ddp)
@@ -333,7 +335,7 @@ def main_process(args, dist: TorchDistManager):
             pret_knn_args = None
         else:
             pret_knn_args = (knn_iters, knn_ld, args.knn_k, args.knn_t, knn_ld.dataset.targets)
-        pret_res_str = pretrain_or_linear_eval(
+        pret_res_str = pretrain(
             pret_knn_args, args.num_classes, ExpMeta(
                 args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.resume_ckpt,
                 args.epochs, args.lr, args.wd, args.nowd, args.coslr, args.schedule, args.warmup, args.grad_clip
@@ -355,10 +357,11 @@ def main_process(args, dist: TorchDistManager):
         msg = lnr_eval_model.encoder_q.load_state_dict(d, strict=False)
         assert len(msg.unexpected_keys) == 0 and all(k.startswith('fc.') for k in msg.missing_keys)
     else:
-        raise NotImplementedError
+        pret_res_str = '[resumed]'
 
+    torch.cuda.empty_cache()
     l_tb_lg._verbose = dist.is_master() or not args.torch_ddp
-    pretrain_or_linear_eval(
+    linear_eval(
         pret_res_str, args.num_classes, ExpMeta(
             args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.eval_resume_ckpt,
             args.eval_epochs, args.eval_lr, args.eval_wd, args.eval_nowd, args.eval_coslr, args.eval_schedule, args.eval_warmup, args.eval_grad_clip
@@ -366,8 +369,7 @@ def main_process(args, dist: TorchDistManager):
         lg, g_tb_lg, l_tb_lg, dist, lnr_eval_model.encoder_q, eval_iters, eval_ld, eval_sp, test_iters, test_ld
     )
     
-    g_tb_lg.close()
-    l_tb_lg.close()
+    g_tb_lg.close(), l_tb_lg.close()
     # dist.finalize()
 
 
@@ -392,27 +394,188 @@ class ExpMeta(NamedTuple):
     grad_clip: Optional[float]
 
 
-def pretrain_or_linear_eval(
-        pretrain_knn_args_or_pret_res_str,
+def pretrain(
+        pretrain_knn_args,
         num_classes: int,
         meta: ExpMeta, lg: Logger, g_tb_lg: SummaryWriter, l_tb_lg: SummaryWriter,
-        dist: TorchDistManager, model: Union[ModelMoCo, torch.nn.Module],
-        tr_iters: int, tr_ld: DataLoader, tr_dist_sp: DistributedSampler, te_iters: int, te_ld: DataLoader,
+        dist: TorchDistManager, pret_model: ModelMoCo,
+        pret_iters: int, pret_ld: DataLoader, pret_dist_sp: DistributedSampler, te_iters: int, te_ld: DataLoader,
 ):
-    is_pretrain = pretrain_knn_args_or_pret_res_str is None or (not isinstance(pretrain_knn_args_or_pret_res_str, str))
-    prefix = 'pretrain' if is_pretrain else 'lnr_eval'
-    test_acc_name = 'knn_acc' if is_pretrain else 'test_acc'
-    
+    if meta.torch_ddp:
+        assert pretrain_knn_args is None
+        pret_model: DistributedDataParallel = DistributedDataParallel(pret_model.cuda(), device_ids=[dist.dev_idx], output_device=dist.dev_idx)
+    else:
+        pret_model: ModelMoCo = pret_model.cuda()
+    params = filter_params(pret_model) if meta.nowd else pret_model.parameters()
+    params = list(filter(lambda p: p.requires_grad, params))
+    optimizer = torch.optim.SGD(params, lr=meta.lr, weight_decay=meta.wd, momentum=0.9)
+    lg.info(f'=> [pretrain]: create op: model_cls={pret_model.__class__.__name__}, len(params)={len(params)}, max_lr={meta.lr}, wd={meta.wd}, nowd={meta.nowd}, coslr={meta.coslr}, warm up={meta.warmup}')
+
     if not meta.coslr:
         sc = meta.schedule
-        lg.info(f'=> [{prefix}]: origin lr schedule={sc} ({type(sc)})')
+        lg.info(f'=> [pretrain]: origin lr schedule={sc} ({type(sc)})')
         if isinstance(sc, str):
             sc = eval(sc)
             assert isinstance(sc, list)
         sc = sorted(sc)
         for i, milestone_epoch in enumerate(sc):
-            sc[i] = milestone_epoch * tr_iters
-        lg.info(f'=> [{prefix}]: updated lr schedule={sc} ({type(sc)})')
+            sc[i] = milestone_epoch * pret_iters
+        lg.info(f'=> [pretrain]: updated lr schedule={sc} ({type(sc)})')
+        meta = meta._replace(schedule=sc)
+    
+    if meta.grad_clip == 'None':
+        meta = meta._replace(grad_clip=None)
+    else:
+        meta = meta._replace(grad_clip=float(meta.grad_clip))
+
+    epoch_start = 0
+    best_test_acc1 = -1e7
+    tr_loss_mov_avg = 0
+    topk_acc1s = TopKHeap(maxsize=max(1, round(meta.epochs * 0.1)))
+    # todo: double-check ckpt loading and early returning
+    if meta.resume_ckpt is not None:
+        pret_resume = torch.load(meta.resume_ckpt, map_location='cpu')
+        epoch_start = pret_resume['epoch'] + 1
+        best_test_acc1 = pret_resume['best_test_acc1']
+        [topk_acc1s.push_q(x) for x in pret_resume['topk_acc1s']]
+        
+        lg.info(f'=> [pretrain]: ckpt loaded from {meta.resume_ckpt}, last_ep={epoch_start - 1}, ep_start={epoch_start}')
+        pret_model.load_state_dict(pret_resume['pret_model'])
+        
+        lg.info(f'=> [pretrain]: load optimizer.state from {meta.resume_ckpt}')
+        optimizer.load_state_dict(pret_resume['optimizer'])
+    
+    time.sleep(1 + 2 * dist.rank)
+    epoch_speed = AverageMeter(3)
+    tr_loss_avg = AverageMeter(pret_iters)
+    tr_acc1_avg = AverageMeter(pret_iters)
+    tr_acc5_avg = AverageMeter(pret_iters)
+    avgs = (tr_loss_avg, tr_acc1_avg, tr_acc5_avg)
+    loop_start_t = time.time()
+    for epoch in range(epoch_start, meta.epochs):
+        if meta.torch_ddp:
+            pret_dist_sp.set_epoch(epoch)
+        ep_str = f'%{len(str(meta.epochs))}d'
+        ep_str %= epoch + 1
+        if epoch % 7 == 0 or epoch == meta.epochs - 1:
+            em_t = time.time()
+            torch.cuda.empty_cache()
+            master_echo(dist.is_master(), f' @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s,      pre_be={best_test_acc1:5.2f}', '36')
+        
+        start_t = time.time()
+        tr_loss: float = train_one_ep(True, 'pretrain', lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, pret_iters, pret_ld, pret_model, params, optimizer, avgs)
+        tr_loss_mov_avg = tr_loss if tr_loss_mov_avg == 0 else tr_loss_mov_avg * 0.99 + tr_loss * 0.01
+        train_t = time.time()
+        
+        if pretrain_knn_args is not None:
+            test_acc1 = knn_test(pretrain_knn_args, lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters, te_ld, pret_model.encoder_q, num_classes)
+        else:
+            test_acc1 = -tr_loss
+        if test_acc1 > 0:
+            l_tb_lg.add_scalar(f'pretrain/knn_acc1', test_acc1, epoch + 1)
+        test_t = time.time()
+        
+        topk_acc1s.push_q(test_acc1)
+        best_updated = test_acc1 > best_test_acc1
+        state_dict = {
+            'arch': meta.arch, 'epoch': epoch, 'pret_model': pret_model.state_dict(), 'optimizer': optimizer.state_dict(),
+            'topk_acc1s': list(topk_acc1s), 'best_test_acc1': best_test_acc1,
+        }
+        if best_updated:
+            best_test_acc1 = test_acc1
+            torch.save(state_dict, os.path.join(meta.exp_root, f'pretrain_best.pth'))
+        if epoch == meta.epochs - 1 and dist.is_master():
+            last_ep_ckpt_name = f'pretrain_final_acc{test_acc1:5.2f}.pth' if test_acc1 > 0 else f'pretrain_final_loss{-test_acc1:.3f}.pth'
+            torch.save(state_dict, os.path.join(meta.exp_root, last_ep_ckpt_name))
+        
+        remain_time, finish_time = epoch_speed.time_preds(meta.epochs - (epoch + 1))
+        lg.info(
+            f'=> [ep {ep_str}/{meta.epochs}]: L={tr_loss:.4g}, te-acc={test_acc1:5.2f}, tr={train_t - start_t:.2f}s, te={test_t - train_t:.2f}s       best={best_test_acc1:5.2f}\n'
+            f'    pretrain [{str(remain_time)}] ({finish_time})'
+        )
+        if dist.is_master():
+            upd_seatable_file(
+                meta.exp_root, dist, pr=min((epoch + 1) / meta.epochs, 0.999), lr=f'{meta.lr:.1g}', knn_acc=best_test_acc1,
+                rem=remain_time.seconds, end_t=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + remain_time.seconds)),
+            )
+        
+        epoch_speed.update(time.time() - start_t)
+        if epoch == epoch_start:
+            master_echo(True, f'[rk{dist.rank:2d}] barrier test')
+            dist.barrier()
+    
+    topk_test_acc1 = sum(topk_acc1s) / len(topk_acc1s)
+    if meta.torch_ddp:
+        perform_dict_str = ''
+        pret_res_str = (
+            f' avg tr losses  {tr_loss_mov_avg:.3f}\n'
+            f' mean-top acc1s @ {topk_test_acc1:.3f}\n'
+            f' best     acc1s @ {best_test_acc1:.3f}'
+        )
+        seatable_acc = best_test_acc1
+    else:
+        topk_accs = dist.dist_fmt_vals(topk_test_acc1, None)
+        best_accs = dist.dist_fmt_vals(best_test_acc1, None)
+        tr_loss_mov_avgs = dist.dist_fmt_vals(tr_loss_mov_avg, None)
+        perform_dict_str = pf({
+            des: f'topk={ta.item():.3f}, best={ba.item():.3f}'
+            for des, ta, ba in zip(meta.descs, topk_accs, best_accs)
+        })
+        pret_res_str = (
+            f' avg tr losses  {str(tr_loss_mov_avgs).replace(chr(10), " ")}\n'
+            f' mean-top acc1s @ (max={topk_accs.max():.3f}, mean={topk_accs.mean():.3f}, std={topk_accs.std():.3f}) {str(topk_accs).replace(chr(10), " ")})\n'
+            f' best     acc1s @ (max={best_accs.max():.3f}, mean={best_accs.mean():.3f}, std={best_accs.std():.3f}) {str(best_accs).replace(chr(10), " ")})'
+        )
+        seatable_acc = best_accs.mean().item()
+    
+    [g_tb_lg.add_scalar(f'pretrain/knn_best1', seatable_acc, e) for e in [epoch_start, meta.epochs]]
+    dt = time.time() - loop_start_t
+    lg.info(
+        f'==> pretrain finished,'
+        f' total time cost: {dt / 60:.2f}min ({dt / 60 / 60:.2f}h)'
+        f' topk: {pf([round(x, 2) for x in topk_acc1s])}\n'
+        f' performance: \n{perform_dict_str}\n{pret_res_str}'
+    )
+    
+    if dist.is_master():
+        upd_seatable_file(
+            meta.exp_root, dist, pr=0.999, rem=180,      # linear_eval
+            knn_acc=seatable_acc,
+            end_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        )
+        lines = pret_res_str.splitlines()
+        strs = ''.join([f'# {l}\n' for l in lines])
+        with open(run_shell_name, 'a') as fp:
+            print(f'\n# pretrain {meta.exp_dirname}:\n{strs}', file=fp)
+    return pret_res_str
+
+
+def linear_eval(
+        pret_res_str: str,
+        num_classes: int,
+        meta: ExpMeta, lg: Logger, g_tb_lg: SummaryWriter, l_tb_lg: SummaryWriter,
+        dist: TorchDistManager, encoder_q: torch.nn.Module,
+        eval_iters: int, eval_ld: DataLoader, eval_dist_sp: DistributedSampler, te_iters: int, te_ld: DataLoader,
+):
+    if meta.torch_ddp:
+        encoder_q: DistributedDataParallel = DistributedDataParallel(encoder_q.cuda(), device_ids=[dist.dev_idx], output_device=dist.dev_idx)
+    else:
+        encoder_q: torch.nn.Module = encoder_q.cuda()
+    params = filter_params(encoder_q) if meta.nowd else encoder_q.parameters()
+    params = list(filter(lambda p: p.requires_grad, params))
+    optimizer = torch.optim.SGD(params, lr=meta.lr, weight_decay=meta.wd, momentum=0.9)
+    lg.info(f'=> [lnr_eval]: create op: model_cls={encoder_q.__class__.__name__}, len(params)={len(params)}, max_lr={meta.lr}, wd={meta.wd}, nowd={meta.nowd}, coslr={meta.coslr}, warm up={meta.warmup}')
+    
+    if not meta.coslr:
+        sc = meta.schedule
+        lg.info(f'=> [lnr_eval]: origin lr schedule={sc} ({type(sc)})')
+        if isinstance(sc, str):
+            sc = eval(sc)
+            assert isinstance(sc, list)
+        sc = sorted(sc)
+        for i, milestone_epoch in enumerate(sc):
+            sc[i] = milestone_epoch * eval_iters
+        lg.info(f'=> [lnr_eval]: updated lr schedule={sc} ({type(sc)})')
         meta = meta._replace(schedule=sc)
     
     if meta.grad_clip == 'None':
@@ -422,131 +585,95 @@ def pretrain_or_linear_eval(
     
     epoch_start = 0
     best_test_acc1 = best_test_acc5 = -5
-    topk_acc1s = TopKHeap(maxsize=max(1, round(meta.epochs * 0.05)))
-    # load model if resume
+    tr_loss_mov_avg = 0
+    topk_acc1s = TopKHeap(maxsize=max(1, round(meta.epochs * 0.1)))
     # todo: double-check ckpt loading and early returning
     if meta.resume_ckpt is not None:
-        ckpt = torch.load(meta.resume_ckpt, map_location='cpu')
-        model.load_state_dict(ckpt['model'])
-        best_test_acc1 = ckpt['best_test_acc1']
-        [topk_acc1s.push_q(x) for x in ckpt['topk_acc1s']]
+        eval_resume = torch.load(meta.resume_ckpt, map_location='cpu')
+        epoch_start = eval_resume['epoch'] + 1
+        best_test_acc1 = eval_resume['best_test_acc1']
+        best_test_acc5 = eval_resume['best_test_acc5']
+        [topk_acc1s.push_q(x) for x in eval_resume['topk_acc1s']]
         
-        epoch_start = ckpt['epoch'] + 1
-        lg.info(f'=> [{prefix}]: ckpt loaded from {meta.resume_ckpt}, last_ep={epoch_start - 1}, ep_start={epoch_start}')
-        if epoch_start == meta.epochs:
-            return
-    else:
-        ckpt = None
+        lg.info(f'=> [lnr_eval]: ckpt loaded from {meta.resume_ckpt}, last_ep={epoch_start - 1}, ep_start={epoch_start}')
+        encoder_q.load_state_dict(eval_resume['encoder_q'])
+        
+        lg.info(f'=> [lnr_eval]: load optimizer.state from {meta.resume_ckpt}')
+        optimizer.load_state_dict(eval_resume['optimizer'])
     
-    if not is_pretrain:
-        initial_model_state = deepcopy(model.state_dict())
-        for p in model.parameters():
-            p.detach_()
-        for m in model.fc.modules():
-            clz_name = m.__class__.__name__
-            if 'Linear' in clz_name:
-                m.weight.data.normal_(mean=0.0, std=0.01)
-                m.weight.requires_grad_()
-                if m.bias is not None:
-                    m.bias.data.zero_()
-                    m.bias.requires_grad_()
-    else:
-        initial_model_state = None
-    
-    params = filter_params(model) if meta.nowd else model.parameters()
-    params = list(filter(lambda p: p.requires_grad, params))
-    optimizer = torch.optim.SGD(params, lr=meta.lr, weight_decay=meta.wd, momentum=0.9)
-    lg.info(f'=> [{prefix}]: create op: model_cls={model.__class__.__name__}, len(params)={len(params)}, max_lr={meta.lr}, wd={meta.wd}, nowd={meta.nowd}, coslr={meta.coslr}, warm up={meta.warmup}')
-    if ckpt is not None:
-        lg.info(f'=> [{prefix}]: load optimizer.state from {meta.resume_ckpt}')
-        optimizer.load_state_dict(ckpt['optimizer'])
-    initial_op_state = optimizer.state_dict()
+    local_encoder_q = encoder_q.module if meta.torch_ddp else encoder_q
+    initial_encoder_q_state = deepcopy(local_encoder_q.state_dict())
+    for p in local_encoder_q.parameters():
+        p.detach_()
+    for m in local_encoder_q.fc.modules():
+        clz_name = m.__class__.__name__
+        if 'Linear' in clz_name:
+            m.weight.data.normal_(mean=0.0, std=0.01)
+            m.weight.requires_grad_()
+            if m.bias is not None:
+                m.bias.data.zero_()
+                m.bias.requires_grad_()
     
     time.sleep(1 + 2 * dist.rank)
-    
-    loop_start_t = time.time()
     epoch_speed = AverageMeter(3)
-    tr_loss_avg = AverageMeter(tr_iters)
-    tr_acc1_avg = AverageMeter(tr_iters)
-    tr_acc5_avg = AverageMeter(tr_iters)
+    tr_loss_avg = AverageMeter(eval_iters)
+    tr_acc1_avg = AverageMeter(eval_iters)
+    tr_acc5_avg = AverageMeter(eval_iters)
     avgs = (tr_loss_avg, tr_acc1_avg, tr_acc5_avg)
-    tr_loss_mov_avg = 0
+    loop_start_t = time.time()
     for epoch in range(epoch_start, meta.epochs):
         if meta.torch_ddp:
-            tr_dist_sp.set_epoch(epoch)
+            eval_dist_sp.set_epoch(epoch)
         ep_str = f'%{len(str(meta.epochs))}d'
         ep_str %= epoch + 1
-        if epoch % 5 == 0 and dist.is_master():
+        if epoch % 7 == 0 or epoch == meta.epochs - 1:
             em_t = time.time()
             torch.cuda.empty_cache()
-            master_echo(dist.is_master(), f' @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s ', '36')
+            master_echo(dist.is_master(), f' @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s,      eva_be={best_test_acc1:5.2f}', '36')
         
         start_t = time.time()
-        tr_loss: float = train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_iters, tr_ld, model, params, optimizer, initial_op_state, avgs)
+        tr_loss: float = train_one_ep(False, 'lnr_eval', lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, eval_iters, eval_ld, encoder_q, params, optimizer, avgs)
         tr_loss_mov_avg = tr_loss if tr_loss_mov_avg == 0 else tr_loss_mov_avg * 0.99 + tr_loss * 0.01
         train_t = time.time()
         
-        if is_pretrain:
-            pretrain_knn_args = pretrain_knn_args_or_pret_res_str
-            if pretrain_knn_args is not None:
-                test_acc1 = knn_test(lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters, te_ld, model.encoder_q, pretrain_knn_args, num_classes)
-                test_acc5 = test_loss = -1
-            else:
-                test_acc1 = test_acc5 = test_loss = -1
-        else:
-            test_acc1, test_acc5, test_loss = eval_test(lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters, te_ld, model, num_classes)
-            l_tb_lg.add_scalar(f'{prefix}/{test_acc_name}5', test_acc5, epoch + 1)
-            l_tb_lg.add_scalar(f'{prefix}/{test_acc_name.replace("acc", "loss")}', test_loss, epoch + 1)
-        if test_acc1 > 0:
-            l_tb_lg.add_scalar(f'{prefix}/{test_acc_name}1', test_acc1, epoch + 1)
+        test_acc1, test_acc5, test_loss = eval_test(lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters, te_ld, encoder_q.module if meta.torch_ddp else encoder_q, num_classes)
+        l_tb_lg.add_scalar(f'lnr_eval/test_acc5', test_acc5, epoch + 1)
+        l_tb_lg.add_scalar(f'lnr_eval/test_loss', test_loss, epoch + 1)
         test_t = time.time()
         
         topk_acc1s.push_q(test_acc1)
-        best_updated = best_test_acc1 < test_acc1
+        best_updated = test_acc1 > best_test_acc1
         state_dict = {
-            'arch': meta.arch, 'epoch': epoch, 'model': model.state_dict(), 'optimizer': optimizer.state_dict(),
-            'topk_acc1s': list(topk_acc1s),
+            'arch': meta.arch, 'epoch': epoch, 'encoder_q': encoder_q.state_dict(), 'optimizer': optimizer.state_dict(),
+            'topk_acc1s': list(topk_acc1s), 'best_test_acc1': best_test_acc1, 'best_test_acc5': best_test_acc5,
         }
         if best_updated:
             best_test_acc1 = test_acc1
             best_test_acc5 = test_acc5
-            # todo: save
-            # torch.save(state_dict, os.path.join(meta.exp_root, f'{prefix}_best.pth'))
-        if epoch == meta.epochs - 1 and dist.is_master():
-            torch.save(state_dict, os.path.join(meta.exp_root, f'{prefix}_acc{test_acc1:5.2f}.pth'))
+            torch.save(state_dict, os.path.join(meta.exp_root, f'lnr_eval_best.pth'))
         
         remain_time, finish_time = epoch_speed.time_preds(meta.epochs - (epoch + 1))
         lg.info(
             f'=> [ep {ep_str}/{meta.epochs}]: L={tr_loss:.4g}, te-acc={test_acc1:5.2f}, tr={train_t - start_t:.2f}s, te={test_t - train_t:.2f}s       best={best_test_acc1:5.2f}\n'
-            f'    {prefix} [{str(remain_time)}] ({finish_time})'
+            f'    lnr_eval [{str(remain_time)}] ({finish_time})'
         )
         if dist.is_master():
-            lr_str = f'{optimizer.param_groups[0]["lr"] / meta.lr:.1e}'
-            kw = {'lr' if is_pretrain else 'v_lr': lr_str}
-            if test_acc1 >= 0:
-                kw[test_acc_name] = test_acc1
-            else:
-                kw[test_acc_name] = -tr_loss_mov_avg
             upd_seatable_file(
-                meta.exp_root, dist, pr=(epoch + 1) / meta.epochs,
+                meta.exp_root, dist, pr=(epoch + 1) / meta.epochs, v_lr=f'{meta.lr:.1g}', test_acc=best_test_acc1,
                 rem=remain_time.seconds, end_t=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + remain_time.seconds)),
-                **kw
             )
         
         epoch_speed.update(time.time() - start_t)
         if epoch == epoch_start:
             master_echo(True, f'[rk{dist.rank:2d}] barrier test')
             dist.barrier()
-            if not is_pretrain:
-                sanity_check(model.state_dict(), initial_model_state)
-        if epoch % 5 == 0 or epoch == meta.epochs - 1:
-            master_echo(dist.is_master(), f'curr_best={best_test_acc1:5.2f}')
+            sanity_check(local_encoder_q.state_dict(), initial_encoder_q_state)
+            del initial_encoder_q_state
     
     topk_test_acc1 = sum(topk_acc1s) / len(topk_acc1s)
-    dt = time.time() - loop_start_t
     if meta.torch_ddp:
-        perform_dict = ''
-        res_str = (
+        perform_dict_str = ''
+        eval_str = (
             f' avg tr losses  {tr_loss_mov_avg:.3f}\n'
             f' best     acc5s @ {best_test_acc5:.3f}\n'
             f' mean-top acc1s @ {topk_test_acc1:.3f}\n'
@@ -558,51 +685,46 @@ def pretrain_or_linear_eval(
         best_accs = dist.dist_fmt_vals(best_test_acc1, None)
         best_acc5s = dist.dist_fmt_vals(best_test_acc5, None)
         tr_loss_mov_avgs = dist.dist_fmt_vals(tr_loss_mov_avg, None)
-        perform_dict = pf({
+        perform_dict_str = pf({
             des: f'topk={ta.item():.3f}, best={ba.item():.3f}'
             for des, ta, ba in zip(meta.descs, topk_accs, best_accs)
         })
-        res_str = (
+        eval_str = (
             f' avg tr losses  {str(tr_loss_mov_avgs).replace(chr(10), " ")}\n'
             f' best     acc5s @ (max={best_acc5s.max():.3f}, mean={best_acc5s.mean():.3f}, std={best_acc5s.std():.3f}) {str(best_acc5s).replace(chr(10), " ")})\n'
             f' mean-top acc1s @ (max={topk_accs.max():.3f}, mean={topk_accs.mean():.3f}, std={topk_accs.std():.3f}) {str(topk_accs).replace(chr(10), " ")})\n'
             f' best     acc1s @ (max={best_accs.max():.3f}, mean={best_accs.mean():.3f}, std={best_accs.std():.3f}) {str(best_accs).replace(chr(10), " ")})'
         )
         seatable_acc = best_accs.mean().item()
-
-    if not is_pretrain:
-        pret_res_str = pretrain_knn_args_or_pret_res_str
-        lg.info(f'==> pretrain.results: \n{pret_res_str}\n')
-
-    [g_tb_lg.add_scalar(f'{prefix}/{test_acc_name.replace("acc", "best")}1', seatable_acc, e) for e in [epoch_start, meta.epochs]]
+    
+    lg.info(f'==> pretrain.results: \n{pret_res_str}\n')
+    [g_tb_lg.add_scalar(f'lnr_eval/test_best1', seatable_acc, e) for e in [epoch_start, meta.epochs]]
+    dt = time.time() - loop_start_t
     lg.info(
-        f'==> {prefix} finished,'
+        f'==> lnr_eval finished,'
         f' total time cost: {dt / 60:.2f}min ({dt / 60 / 60:.2f}h)'
         f' topk: {pf([round(x, 2) for x in topk_acc1s])}\n'
-        f' performance: \n{perform_dict}\n{res_str}'
+        f' performance: \n{perform_dict_str}\n{eval_str}'
     )
-
+    
     if dist.is_master():
-        kw = {test_acc_name: seatable_acc, 'lr' if is_pretrain else 'v_lr': f'{meta.lr:.1g}'}
         upd_seatable_file(
             meta.exp_root, dist, pr=1., rem=0,
+            test_acc=seatable_acc,
             end_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            **kw
         )
-        lines = res_str.splitlines()
+        lines = eval_str.splitlines()
         strs = ''.join([f'# {l}\n' for l in lines])
         with open(run_shell_name, 'a') as fp:
-            print(f'\n# {prefix} {meta.exp_dirname}:\n{strs}', file=fp)
-    
-    return res_str
+            print(f'\n# lnr_eval {meta.exp_dirname}:\n{strs}', file=fp)
 
 
 # one epoch
-def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_iters, tr_ld, model, params, op, initial_op_state, avgs):
+def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_iters, tr_ld, dist_or_local_model, params, op, avgs):
     if is_pretrain:
-        model.train()
+        dist_or_local_model.train()
     else:
-        model.eval()    # todo: 全连接也弄成eval？确定吗？应该只是说提feature层应该不能更新吧，FC应该可以更新的吧！看下moco源代码！
+        dist_or_local_model.eval()    # todo: 全连接也弄成eval？确定吗？应该只是说提feature层应该不能更新吧，FC应该可以更新的吧！看下moco源代码！
     
     tr_loss_avg, tr_acc1_avg, tr_acc5_avg = avgs
     log_iters = tr_iters // meta.log_freq
@@ -624,9 +746,9 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
         cuda_t = time.time()
         
         if is_pretrain:
-            loss = model(data1, data2)
+            loss = dist_or_local_model(data1, data2)
         else:
-            oup = model(data1)
+            oup = dist_or_local_model(data1)
             loss = F.cross_entropy(oup, data2)
             acc1, acc5 = accuracy(oup, data2, topk=(1, 5))
             tr_acc1_avg.update(acc1, bs)
@@ -682,16 +804,16 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
 
 
 # test using a knn monitor
-def knn_test(lg, l_tb_lg, dist, log_freq, epoch, ep_str, te_iters, te_ld, moco_encoder_q, knn_args, num_classes):
+def knn_test(knn_args, lg, l_tb_lg, dist, log_freq, epoch, ep_str, te_iters, te_ld, local_encoder_q, num_classes):
     knn_iters, knn_ld, knn_k, knn_t, targets = knn_args
     # log_iters = te_iters // log_freq
     
-    moco_encoder_q.eval()
+    local_encoder_q.eval()
     total_top1, total_top5, total_num, feature_bank = 0.0, 0.0, 0, []
     with torch.no_grad():
         # generate feature bank
         for inp, _ in knn_ld:
-            feature = moco_encoder_q(inp.cuda(non_blocking=True))
+            feature = local_encoder_q(inp.cuda(non_blocking=True))
             feature = F.normalize(feature, dim=1)
             feature_bank.append(feature)
         # [D, N]
@@ -705,7 +827,7 @@ def knn_test(lg, l_tb_lg, dist, log_freq, epoch, ep_str, te_iters, te_ld, moco_e
             # data_t = time.time()
             inp, tar = inp.cuda(non_blocking=True), tar.cuda(non_blocking=True)
             # cuda_t = time.time()
-            feature = moco_encoder_q(inp)
+            feature = local_encoder_q(inp)
             feature = F.normalize(feature, dim=1)
             # fea_t = time.time()
             
@@ -749,14 +871,14 @@ def knn_predict(feature, feature_bank, feature_labels, classes, knn_k, knn_t):
     return pred_labels
 
 
-def eval_test(lg, l_tb_lg, dist, log_freq, epoch, ep_str, te_iters, te_ld, moco_encoder_q, num_classes):
-    moco_encoder_q.eval()
+def eval_test(lg, l_tb_lg, dist, log_freq, epoch, ep_str, te_iters, te_ld, local_encoder_q, num_classes):
+    local_encoder_q.eval()
     with torch.no_grad():
         tot_acc1, tot_acc5, tot_loss, tot_num = 0, 0, 0, 0
         for inp, tar in te_ld:
             bs = inp.shape[0]
             inp, tar = inp.cuda(non_blocking=True), tar.cuda(non_blocking=True)
-            oup = moco_encoder_q(inp)
+            oup = local_encoder_q(inp)
             assert oup.shape[1] == num_classes
             loss = F.cross_entropy(oup, tar)
             acc1, acc5 = accuracy(oup, tar, topk=(1, 5))
@@ -768,11 +890,11 @@ def eval_test(lg, l_tb_lg, dist, log_freq, epoch, ep_str, te_iters, te_ld, moco_
         return tot_acc1 / tot_num, tot_acc5 / tot_num, tot_loss / tot_num
 
 
-def sanity_check(current_state, initial_state):
-    ks1, ks2 = list(current_state.keys()), list(initial_state.keys())
+def sanity_check(current_local_encoder_q_state, initial_local_encoder_q_state):
+    ks1, ks2 = list(current_local_encoder_q_state.keys()), list(initial_local_encoder_q_state.keys())
     assert ks1 == ks2
     for key in filter(lambda k: not k.startswith('fc.'), ks1):
-        t1, t2 = current_state[key], initial_state[key]
+        t1, t2 = current_local_encoder_q_state[key], initial_local_encoder_q_state[key]
         t1: torch.Tensor
         t2: torch.Tensor
         assert (t1 == t2).all(), f'{key} changed in the linear evaluation'

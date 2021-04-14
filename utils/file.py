@@ -42,7 +42,7 @@ class DistLogger(object):
             self._lg.close()
 
 
-def create_files(args, dist):
+def create_loggers(args, dist):
     # create the exp dir
     if dist.is_master():
         os.makedirs(args.exp_root)

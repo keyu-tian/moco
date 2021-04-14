@@ -5,7 +5,7 @@ import torchvision
 from torch.utils.data import Dataset
 from torch.utils.data.sampler import Sampler
 
-from utils.imagenet import ImageNetDataset, ImageNetDataset120
+from utils.imagenet import ImageNetDataset, SubImageNetDataset, _target_num_per_cls
 from utils.misc import ints_ceil
 
 
@@ -29,13 +29,13 @@ dataset_metas: Dict[str, _DatasetMeta] = {
         clz=ImageNetDataset,
         mean_std=((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ),
-    'imagenet120': _DatasetMeta(
+    'subimagenet': _DatasetMeta(
         img_ch=3,
-        train_val_set_size=153487,
-        test_set_size=6000,
+        train_val_set_size=_target_num_per_cls,
+        test_set_size=50,
         img_size=224,
-        num_classes=120,
-        clz=ImageNetDataset120,
+        num_classes=0,
+        clz=SubImageNetDataset,
         mean_std=((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ),
     'cifar10': _DatasetMeta(
