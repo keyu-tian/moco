@@ -144,7 +144,7 @@ get_params(32, 'All0.0_0.3', 100, False)
 
 if __name__ == '__main__':
     from aug_op.rrc_vis import vis
-    vis(*get_params(32, 'AllAB_-_0.3_C_0.2_-', 10000, True))
+    vis(*get_params(32, 'AB_-_0.4_C_0.2_-', 10000, True))
 
 
 class CIFAR10PairTransform(object):
