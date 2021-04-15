@@ -7,7 +7,7 @@ log_freq: 3
 pret_verbose: False
 
 data:
-    dataset: imagenet      # cifar10, cifar100, imagenet, imagenetX (1<X<895, for sub imagenet)
+    dataset: imagenet      # cifar10, cifar100, imagenet, imagenetX (5<X<895, for sub imagenet)
 #   meta: [will be assigned in runtime]
     ds_root: /mnt/lustre/share/images
     num_workers: 4
