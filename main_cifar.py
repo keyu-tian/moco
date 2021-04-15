@@ -657,7 +657,7 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
         if cur_iter % log_iters == 0:
             grads = torch.cat([p.grad.data.view(-1) for p in params if p.requires_grad])
             grads_abs = grads.abs()
-            k = max(1, round(len(grads) * 0.001))
+            k = max(1, round(len(grads) * 0.0008))
             grads_abs_topk_val, grads_abs_topk_idx = grads.abs().topk(k)
             topk_grads_mean = grads_abs_topk_val.mean().item()
             topk_grads_std = grads[grads_abs_topk_idx].std().item()
