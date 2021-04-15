@@ -44,7 +44,6 @@ srun \
 --mpi=pmi2 -p $1 --comment=spring-submit -n4 --gres=gpu:4 \
 --ntasks-per-node=4 \
 --cpus-per-task=6 \
---qos=non-preemptable \
 --job-name "${DIR_NAME}----${EXP_DIR}" "${cmd_str}"
 
 failed=$?
