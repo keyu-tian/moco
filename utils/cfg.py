@@ -101,7 +101,8 @@ def parse_cfg(cfg_path, rank, world_size, job_kw) -> Cfg:
         )
     else:
         dataset_meta = dataset_metas[cfg.data.dataset]
-    cfg.data.ds_root = os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', cfg.data.dataset))
+    if cfg.data.ds_root is None:
+        cfg.data.ds_root = os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', cfg.data.dataset))
     data_cfg = DataCfg(**cfg.data)
     data_cfg = data_cfg._replace(meta=dataset_meta)
     
