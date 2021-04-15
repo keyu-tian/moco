@@ -255,9 +255,9 @@ def main_process(args, dist: TorchDistManager):
             pret_transform = CIFAR10PairTransform(False, dataset_meta.img_size, args.rrc_test, transforms.Normalize(*dataset_meta.mean_std, inplace=True))
     else:
         if args.stronger_rrc:
-            scale, ratio = (0.03, 1.0), (2.5 / 4., 4. / 2.5)
+            scale, ratio = (0.032, 1.0), (2.6 / 4., 4. / 2.6)
         elif args.weaker_rrc:
-            scale, ratio = (0.17, 1.0), (3.4 / 4., 4. / 3.4)
+            scale, ratio = (0.17, 1.0), (3.3 / 4., 4. / 3.3)
         else:
             scale, ratio = (0.08, 1.0), (3. / 4., 4. / 3.)
         pret_transform = transforms.Compose([
@@ -657,7 +657,7 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
         if cur_iter % log_iters == 0:
             grads = torch.cat([p.grad.data.view(-1) for p in params if p.requires_grad])
             grads_abs = grads.abs()
-            k = max(1, round(len(grads) * 0.0008))
+            k = max(1, round(len(grads) * 0.0005))
             grads_abs_topk_val, grads_abs_topk_idx = grads.abs().topk(k)
             topk_grads_mean = grads_abs_topk_val.mean().item()
             topk_grads_std = grads[grads_abs_topk_idx].std().item()
