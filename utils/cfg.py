@@ -99,11 +99,14 @@ def parse_cfg(cfg_path, rank, world_size, job_kw) -> Cfg:
             train_val_set_size=dataset_meta.train_val_set_size * num_classes,
             test_set_size=dataset_meta.test_set_size * num_classes,
         )
-        if rank == 0: print(f'type(dataset_meta) = {type(dataset_meta)}')
+        if rank == 0: print(f'[prev ] ====> type(dataset_meta) = {type(dataset_meta)}')
     else:
         dataset_meta = dataset_metas[cfg.data.dataset]
     cfg.data['meta'] = dataset_meta
     cfg.data.ds_root = os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', cfg.data.dataset))
+    if rank == 0: print(f'[mid  ] ====> type(dataset_meta) = {type( cfg.data["meta"])}')
+    data_cfg = DataCfg(**cfg.data)
+    if rank == 0: print(f'[after] ====> type(dataset_meta) = {type(data_cfg.meta)}')
     
     # moco
     cfg.moco.arch = cfg.moco.arch.strip().lower()
@@ -132,7 +135,7 @@ def parse_cfg(cfg_path, rank, world_size, job_kw) -> Cfg:
         pret_verbose=cfg.pret_verbose,
         
         job=JobCfg(**job_kw),
-        data=DataCfg(**cfg.data),
+        data=data_cfg,
         moco=MocoCfg(**cfg.moco),
         pretrain=PretrainCfg(**cfg.pretrain),
         lnr_eval=LinearEvalCfg(**cfg.lnr_eval),
