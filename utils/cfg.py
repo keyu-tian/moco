@@ -99,6 +99,7 @@ def parse_cfg(cfg_path, rank, world_size, job_kw) -> Cfg:
             train_val_set_size=dataset_meta.train_val_set_size * num_classes,
             test_set_size=dataset_meta.test_set_size * num_classes,
         )
+        if rank == 0: print(f'type(dataset_meta) = {type(dataset_meta)}')
     else:
         dataset_meta = dataset_metas[cfg.data.dataset]
     cfg.data['meta'] = dataset_meta
