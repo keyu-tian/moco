@@ -114,8 +114,8 @@ def parse_cfg(cfg_path, rank, world_size, job_kw) -> Cfg:
         cfg.lnr_eval.eval_batch_size //= world_size
     if cfg.pretrain.schedule is not None and len(cfg.pretrain.schedule) > 0:
         cfg.pretrain.schedule = sorted(cfg.pretrain.schedule)
-    if cfg.lnr_eval.schedule is not None and len(cfg.lnr_eval.schedule) > 0:
-        cfg.lnr_eval.schedule = sorted(cfg.lnr_eval.schedule)
+    if cfg.lnr_eval.eval_schedule is not None and len(cfg.lnr_eval.eval_schedule) > 0:
+        cfg.lnr_eval.eval_schedule = sorted(cfg.lnr_eval.eval_schedule)
     
     # cfg
     if cfg.seed_base is not None:
