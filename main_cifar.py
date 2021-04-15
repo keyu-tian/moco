@@ -255,13 +255,13 @@ def main_process(args, dist: TorchDistManager):
             pret_transform = CIFAR10PairTransform(False, dataset_meta.img_size, args.rrc_test, transforms.Normalize(*dataset_meta.mean_std, inplace=True))
     else:
         if args.stronger_rrc:
-            scale, ratio = (0.17, 1.0), (3.2 / 4., 4. / 3.2)
-        elif args.weaker_rrc:
             scale, ratio = (0.03, 1.0), (2.5 / 4., 4. / 2.5)
+        elif args.weaker_rrc:
+            scale, ratio = (0.17, 1.0), (3.4 / 4., 4. / 3.4)
         else:
             scale, ratio = (0.08, 1.0), (3. / 4., 4. / 3.)
         pret_transform = transforms.Compose([
-            transforms.RandomResizedCrop(32),
+            transforms.RandomResizedCrop(32, scale=scale, ratio=ratio),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
             transforms.RandomGrayscale(p=0.2),
