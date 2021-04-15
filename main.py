@@ -179,7 +179,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
     
     set_kw = dict(root=cfg.data.ds_root, download=False)
     if sub_imagenet:
-        set_kw['num_classes'] = cfg.data.num_classes
+        set_kw['num_classes'] = cfg.data.meta.num_classes
     loader_kw = dict(num_workers=cfg.data.num_workers, pin_memory=cfg.data.pin_mem)
     dist_sp_kw = dict(num_replicas=dist.world_size, rank=dist.rank, shuffle=True)
 

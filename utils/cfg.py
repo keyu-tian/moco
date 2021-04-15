@@ -21,7 +21,6 @@ class JobCfg(NamedTuple):
 class DataCfg(NamedTuple):
     dataset: str = 'cifar10'
     meta: DatasetMeta = None
-    num_classes: int = 10
     ds_root: Optional[str] = None
     num_workers: int = 4
     pin_mem: bool = True
