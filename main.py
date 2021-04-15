@@ -59,7 +59,14 @@ def main():
     )
     cfg = parse_cfg(args.cfg, dist.rank, dist.world_size, job_kw)
     
-    main_process(cfg, dist)
+    rk = dist.rank
+    if rk == 0:
+        main_process(cfg, dist)
+    else:
+        try:
+            main_process(cfg, dist)
+        except Exception:
+            exit(-5)
     
     if isinstance(dist.WORLD_GROUP, int):
         dist.finalize()
