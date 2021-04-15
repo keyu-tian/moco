@@ -8,6 +8,7 @@ from datetime import datetime
 from logging import Logger
 from pprint import pformat as pf
 from typing import NamedTuple, Optional, List
+import numpy as np
 
 import colorama
 import torch
