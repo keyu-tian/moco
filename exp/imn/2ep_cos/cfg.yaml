@@ -17,7 +17,7 @@ moco:
     arch: resnet50
     init: False
     moco_dim: 128   # cifar & imn: 128
-    moco_k: 65536   # cifar: 4096, imn: 65536
+    moco_k: 2048    # cifar: 4096, imn: 65536
     moco_m: 0.999   # cifar: 0.99, imn: 0.999
     moco_t: 0.2     # cifar: 0.1, imn(mocov1): 0.07, v2: 0.2
     sbn: False
