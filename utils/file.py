@@ -6,6 +6,7 @@ import sys
 
 from tensorboardX import SummaryWriter
 
+from utils.cfg import JobCfg
 from utils.misc import time_str
 
 
@@ -42,7 +43,7 @@ class DistLogger(object):
             self._lg.close()
 
 
-def create_loggers(job_cfg, dist):
+def create_loggers(job_cfg: JobCfg, dist):
     # create the exp dir
     if dist.is_master():
         os.makedirs(job_cfg.exp_root)
@@ -70,7 +71,7 @@ def create_loggers(job_cfg, dist):
     dist.barrier()
 
     global_tensorboard_logger = SummaryWriter(os.path.join(job_cfg.exp_root, 'events', 'glb')) if dist.is_master() else None
-    local_tensorboard_logger = SummaryWriter(os.path.join(job_cfg.exp_root, 'events', job_cfg.loc_desc))
+    local_tensorboard_logger = SummaryWriter(os.path.join(job_cfg.exp_root, 'events', job_cfg.local_desc))
 
     return (
         DistLogger(logger, verbose=dist.is_master()),
