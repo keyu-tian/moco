@@ -7,7 +7,9 @@ EXP_DIR="exp-$(date "+%Y-%m%d-%H%M%S")"
 python "${REL_PATH}monitor.py" "${EXP_DIR}" &
 
 PYTHONPATH=${PYTHONPATH}:${REL_PATH} GLOG_vmodule=MemcachedClient=-1 \
-spring.submit run --gpu -n8 \
+srun \
+--mpi=pmi2 -p $1 --comment=spring-submit -n8 --gres=gpu:8 \
+--ntasks-per-node=8 \
 --cpus-per-task=6 \
 --job-name "${DIR_NAME}----${EXP_DIR}" "python -u -m main --main_py_rel_path=${REL_PATH} --exp_dirname=${EXP_DIR} --cfg=cfg.yaml"
 
