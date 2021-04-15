@@ -111,7 +111,7 @@ def parse_cfg(cfg_path, rank, world_size, job_kw) -> Cfg:
     if cfg.torch_ddp:
         assert cfg.pretrain.batch_size % world_size == 0 and cfg.lnr_eval.eval_batch_size % world_size == 0
         cfg.pretrain.batch_size //= world_size
-        cfg.lnr_eval.batch_size //= world_size
+        cfg.lnr_eval.eval_batch_size //= world_size
     if cfg.pretrain.schedule is not None and len(cfg.pretrain.schedule) > 0:
         cfg.pretrain.schedule = sorted(cfg.pretrain.schedule)
     if cfg.lnr_eval.schedule is not None and len(cfg.lnr_eval.schedule) > 0:
