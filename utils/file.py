@@ -42,20 +42,20 @@ class DistLogger(object):
             self._lg.close()
 
 
-def create_loggers(args, dist):
+def create_loggers(job_cfg, dist):
     # create the exp dir
     if dist.is_master():
-        os.makedirs(args.exp_root)
+        os.makedirs(job_cfg.exp_root)
         
         # backup scripts
-        back_dir = os.path.join(args.exp_root, 'back_up')
+        back_dir = os.path.join(job_cfg.exp_root, 'back_up')
         shutil.copytree(
-            src=args.prj_root, dst=back_dir,
+            src=job_cfg.prj_root, dst=back_dir,
             ignore=shutil.ignore_patterns('.*', '*ckpt*', '*exp*', '__pycache__'),
             ignore_dangling_symlinks=True
         )
         shutil.copytree(
-            src=args.sh_root, dst=back_dir + args.sh_root.replace(args.prj_root, ''),
+            src=job_cfg.sh_root, dst=back_dir + job_cfg.sh_root.replace(job_cfg.prj_root, ''),
             ignore=lambda _, names: {n for n in names if not re.match(r'^(.*)\.(yaml|sh)$', n)},
             ignore_dangling_symlinks=True
         )
@@ -63,14 +63,14 @@ def create_loggers(args, dist):
     dist.barrier()
     
     # create loggers
-    logger = create_logger('G', os.path.join(args.exp_root, 'log.txt')) if dist.is_master() else None
+    logger = create_logger('G', os.path.join(job_cfg.exp_root, 'log.txt')) if dist.is_master() else None
 
     if dist.is_master():
-        os.mkdir(os.path.join(args.exp_root, 'events'))
+        os.mkdir(os.path.join(job_cfg.exp_root, 'events'))
     dist.barrier()
 
-    global_tensorboard_logger = SummaryWriter(os.path.join(args.exp_root, 'events', 'glb')) if dist.is_master() else None
-    local_tensorboard_logger = SummaryWriter(os.path.join(args.exp_root, 'events', args.loc_desc))
+    global_tensorboard_logger = SummaryWriter(os.path.join(job_cfg.exp_root, 'events', 'glb')) if dist.is_master() else None
+    local_tensorboard_logger = SummaryWriter(os.path.join(job_cfg.exp_root, 'events', job_cfg.loc_desc))
 
     return (
         DistLogger(logger, verbose=dist.is_master()),

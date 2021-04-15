@@ -7,25 +7,24 @@ from copy import deepcopy
 from datetime import datetime
 from logging import Logger
 from pprint import pformat as pf
-from typing import NamedTuple, Optional, List, Union
+from typing import NamedTuple, Optional, List
 
 import colorama
 import torch
 import torch.nn.functional as F
-from PIL import Image
 from rsa.prime import is_prime
 from tensorboardX import SummaryWriter
 from torch.nn.parallel.distributed import DistributedDataParallel
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torchvision import transforms
-from torchvision.datasets import CIFAR10
 
 # from aug_op.rrc import CIFAR10PairTransform
 from aug_op.ops import GaussianBlur
 from meta import seatable_fname, run_shell_name
 from model.moco import ModelMoCo
-from utils.data import dataset_metas, InputPairSet
+from utils.cfg import parse_cfg, Cfg, namedtuple_to_str
+from utils.data import InputPairSet
 from utils.dist import TorchDistManager
 from utils.file import create_loggers
 from utils.misc import time_str, filter_params, set_seed, AverageMeter, TopKHeap, adjust_learning_rate, accuracy, master_echo
@@ -33,99 +32,33 @@ from utils.misc import time_str, filter_params, set_seed, AverageMeter, TopKHeap
 parser = argparse.ArgumentParser(description='Train MoCo on CIFAR-10')
 
 # basic
-parser.add_argument('--torch_ddp', action='store_true', help='using DistributedDataParallel')
 parser.add_argument('--main_py_rel_path', type=str, required=True)
 parser.add_argument('--exp_dirname', type=str, required=True)
-parser.add_argument('--resume_ckpt', default=None, type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
-parser.add_argument('--eval_resume_ckpt', default=None, type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
-parser.add_argument('--seed_base', default=None, type=int)
-parser.add_argument('--log_freq', default=3, type=int)
-parser.add_argument('--pret_verbose', action='store_true')
-
-# moco
-parser.add_argument('--arch', default='resnet18')
-parser.add_argument('--init', action='store_true')
-parser.add_argument('--moco_dim', default=128, type=int, help='feature dimension')  # same for cifar and imagenet
-parser.add_argument('--moco_k', default=4096, type=int, help='queue size; number of negative keys')
-# cifar: moco_k=4096   imagenet: 65536
-parser.add_argument('--moco_m', default=0.99, type=float, help='moco momentum of updating key encoder')
-# cifar: moco_m=0.99   imagenet: 0.999
-parser.add_argument('--moco_t', default=0.1, type=float, help='softmax temperature')
-# cifar: moco_t=0.1    imagenet(mocov2): moco_t=0.2    imagenet(mocov1): moco_t=0.07
-# parser.add_argument('--bn_splits', default=8, type=int, help='simulate multi-gpu behavior of BatchNorm in one gpu; 1 is SyncBatchNorm in multi-gpu')
-parser.add_argument('--sbn', action='store_true', help='use synchronized batchnorm')
-parser.add_argument('--mlp', action='store_true', help='use mlp')
-parser.add_argument('--moco_symm', action='store_true', help='use a symmetric loss function that backprops to both crops')
-
-# pretraining
-parser.add_argument('--epochs', default=200, type=int, metavar='N', help='number of total epochs to run')
-parser.add_argument('--batch_size', default=512, type=int, metavar='N', help='mini-batch size')
-# cifar: batch_size=512(not dist)    imagenet: batch_size=256(glb)
-parser.add_argument('--eval_batch_size', default=512, type=int, metavar='N', help='mini-batch size')
-# cifar: eval_batch_size=512(not dist)    imagenet: eval_batch_size=256(glb)
-# lr: 0.06 for batch 512 (or 0.03 for batch 256)
-parser.add_argument('--knn_ld_or_test_ld_batch_size', default=512, type=int, metavar='N', help='mini-batch size')
-# cifar: knn_ld_or_test_ld_batch_size=512(not dist)    imagenet: knn_ld_or_test_ld_batch_size=256(not dist)
-parser.add_argument('--lr', default=0.06, type=float, metavar='LR', help='initial learning rate')
-# cifar: lr=0.06 for b512    imagenet: lr=0.03 for b256
-parser.add_argument('--coslr', action='store_true', help='use cosine lr schedule')
-parser.add_argument('--schedule', default=[120, 160], nargs='*', type=int, help='learning rate schedule (when to drop lr by 10x); does not take effect if --coslr is on')
-parser.add_argument('--warmup', action='store_true', help='use warming up')
-parser.add_argument('--wd', default=5e-4, type=float, metavar='W', help='weight decay')
-parser.add_argument('--nowd', action='store_true', help='no wd for params of bn and bias')
-parser.add_argument('--grad_clip', default='5', type=str, help='max grad norm')
-
-# linear evaluation
-parser.add_argument('--eval_epochs', default=100, type=int, metavar='N', help='number of total epochs to run')  # same for cifar and imagenet
-parser.add_argument('--eval_lr', default=30, type=float, metavar='LR', help='initial learning rate')
-# cifar: eval_lr=30 for b512    imagenet: eval_lr=30 for b256
-parser.add_argument('--eval_coslr', action='store_true', help='use cosine lr schedule')
-parser.add_argument('--eval_schedule', default=[60, 80], nargs='*', type=int, help='learning rate schedule (when to drop lr by 10x); does not take effect if --coslr is on')
-parser.add_argument('--eval_warmup', action='store_true', help='use warming up')
-parser.add_argument('--eval_wd', default=0., type=float, metavar='W', help='weight decay')
-parser.add_argument('--eval_nowd', action='store_true', help='no wd for params of bn and bias')
-parser.add_argument('--eval_grad_clip', default='5', type=str, help='max grad norm')
-
-# data
-parser.add_argument('--dataset', default='cifar10') #, choices=list(dataset_metas.keys()))
-parser.add_argument('--ds_root', default='/mnt/lustre/share/images', help='dataset root dir')
-parser.add_argument('--num_workers', default=4, type=int)
-parser.add_argument('--pin_mem', action='store_true')
-
-# knn monitor
-parser.add_argument('--knn_k', default=200, type=int, help='k in kNN monitor')
-parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperature in kNN monitor; could be different with moco-t')
-
-# exploration
-# parser.add_argument('--rrc_test', type=str, default='')
-
-
-# class CIFAR10Pair(CIFAR10):
-#     def __getitem__(self, index):
-#         pil_img = self.data[index]          # ignore self.targets
-#         pil_img = Image.fromarray(pil_img)
-#         if isinstance(self.transform, CIFAR10PairTransform):
-#             im1, im2 = self.transform(pil_img)
-#         else:
-#             im1, im2 = self.transform(pil_img), self.transform(pil_img)
-#         return im1, im2
+parser.add_argument('--cfg', type=str, required=True)
 
 
 def main():
     colorama.init(autoreset=True)
     args = parser.parse_args()
-    args.dataset = args.dataset.strip().lower()
     
-    args.sh_root = os.getcwd()
-    args.job_name = os.path.split(args.sh_root)[-1]
-    args.exp_root = os.path.join(args.sh_root, args.exp_dirname)
+    sh_root = os.getcwd()
+    job_name = os.path.split(sh_root)[-1]
+    exp_root = os.path.join(sh_root, args.exp_dirname)
     os.chdir(args.main_py_rel_path)
-    args.prj_root = os.getcwd()
-    os.chdir(args.sh_root)
+    prj_root = os.getcwd()
+    os.chdir(sh_root)
     
     dist = TorchDistManager(args.exp_dirname, 'auto', 'auto')
+
+    descs = [f'rk{rk:02d}' for rk in range(dist.world_size)]
+    loc_desc = descs[dist.rank]
+    job_kw = dict(
+        sh_root=sh_root, job_name=job_name, exp_root=exp_root,
+        prj_root=prj_root, descs=descs, loc_desc=loc_desc
+    )
+    cfg = parse_cfg(args.cfg, dist.rank, dist.world_size, job_kw)
     
-    main_process(args, dist)
+    main_process(cfg, dist)
     
     if isinstance(dist.WORLD_GROUP, int):
         dist.finalize()
@@ -141,72 +74,49 @@ def upd_seatable_file(exp_root, dist, **kw):
             json.dump([exp_root, seatable_kw], fp)
 
 
-def main_process(args, dist: TorchDistManager):
+def main_process(cfg: Cfg, dist: TorchDistManager):
     # for i in range(dist.world_size):
     #     if i == dist.rank:
     #         print(f'[[[[ rk {dist.rank} ]]]]: dist.dev_idx={dist.dev_idx}, gpu_dev_idx={gpu_dev_idx}')
     #     dist.barrier()
     # assert dist.dev_idx == gpu_dev_idx
     
-    args.descs = [f'rk{rk:02d}' for rk in range(dist.world_size)]
-    args.loc_desc = args.descs[dist.rank]
-    
-    args.dataset = args.dataset.strip().lower()
-    on_imagenet = 'imagenet' in args.dataset
-    sub_imagenet = on_imagenet and args.dataset != 'imagenet'
-    if sub_imagenet:
-        num_classes = int(args.dataset.replace('imagenet', ''))
-        dataset_meta = dataset_metas['subimagenet']
-        dataset_meta = dataset_meta._replace(
-            num_classes=num_classes,
-            train_val_set_size=dataset_meta.train_val_set_size * num_classes,
-            test_set_size=dataset_meta.test_set_size * num_classes,
-        )
-    else:
-        dataset_meta = dataset_metas[args.dataset]
-    args.num_classes = dataset_meta.num_classes
-    
-    lg, g_tb_lg, l_tb_lg = create_loggers(args, dist)
+    on_imagenet = 'imagenet' in cfg.data.dataset
+    sub_imagenet = on_imagenet and cfg.data.dataset != 'imagenet'
+
+    lg, g_tb_lg, l_tb_lg = create_loggers(cfg.job, dist)
     lg: Logger = lg  # just for the code completion (actually is `DistLogger`)
     g_tb_lg: SummaryWriter = g_tb_lg  # just for the code completion (actually is `DistLogger`)
     l_tb_lg: SummaryWriter = l_tb_lg  # just for the code completion (actually is `DistLogger`)
+
+    lg.info(f'=> [final cfg]:\n{namedtuple_to_str(cfg)}')
     
-    if args.seed_base is None:
+    if cfg.seed_base is None:
         lg.info(f'=> [main]: args.seed_base is None, no set_seed called')
         torch.backends.cudnn.benchmark = True
         torch.backends.cudnn.deterministic = False
     else:
         seeds = torch.zeros(dist.world_size).float()
-        seeds[dist.rank] = args.seed = args.seed_base + dist.rank
+        seeds[dist.rank] = cfg.seed
         dist.allreduce(seeds)
         dist.broadcast(seeds, 0)
-        assert torch.allclose(seeds, torch.arange(args.seed_base, args.seed_base + dist.world_size).float())
-        same_seed = args.torch_ddp
-        set_seed(args.seed_base if same_seed else args.seed)
+        assert torch.allclose(seeds, torch.arange(cfg.seed_base, cfg.seed_base + dist.world_size).float())
+        same_seed = cfg.torch_ddp
+        set_seed(cfg.seed_base if same_seed else cfg.seed)
         lg.info(f'=> [main]: using {"the same seed" if same_seed else "diff seeds"}')
     
     upd_seatable_file(
-        args.exp_root, dist,
-        gpu=dist.world_size if args.torch_ddp else 1,
-        ds=args.dataset,
+        cfg.job.exp_root, dist,
+        gpu=dist.world_size if cfg.torch_ddp else 1,
+        ds=cfg.data.dataset,
         # mom=args.moco_m,
-        T=args.moco_t,
-        sbn=args.sbn, mlp=args.mlp, sym=args.moco_symm, init=args.init,
-        ep=args.epochs, bs=args.batch_size, t_bs=args.knn_ld_or_test_ld_batch_size, cos=args.coslr, wp=args.warmup, nowd=args.nowd,
-        v_ep=args.eval_epochs, v_cos=args.eval_coslr, v_wp=args.eval_warmup, v_nowd=args.eval_nowd,
+        T=cfg.moco.moco_t,
+        sbn=cfg.moco.sbn, mlp=cfg.moco.mlp, sym=cfg.moco.moco_symm, init=cfg.moco.init,
+        ep=cfg.pretrain.epochs, bs=cfg.pretrain.batch_size, t_bs=cfg.pretrain.knn_ld_or_test_ld_batch_size, cos=cfg.pretrain.coslr, wp=cfg.pretrain.warmup, nowd=cfg.pretrain.nowd,
+        v_ep=cfg.lnr_eval.eval_epochs, v_cos=cfg.lnr_eval.eval_coslr, v_wp=cfg.lnr_eval.eval_warmup, v_nowd=cfg.lnr_eval.eval_nowd,
         pr=0, rem=0, beg_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     )
 
-    if args.ds_root is None or args.ds_root == 'None':
-        args.ds_root = os.path.abspath(os.path.join(os.path.expanduser('~'), 'datasets', args.dataset))
-    
-    # if args.rrc_test:
-    #     if dist.rank == 0:
-    #         pret_transform = CIFAR10PairTransform(True, dataset_meta.img_size, args.rrc_test, transforms.Normalize(*dataset_meta.mean_std, inplace=True))
-    #     dist.barrier()
-    #     if dist.rank != 0:
-    #         pret_transform = CIFAR10PairTransform(False, dataset_meta.img_size, args.rrc_test, transforms.Normalize(*dataset_meta.mean_std, inplace=True))
-    # else:
     if on_imagenet:
         pret_transform = transforms.Compose([
             transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
@@ -217,19 +127,19 @@ def main_process(args, dist: TorchDistManager):
             transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize(*dataset_meta.mean_std, inplace=True),
+            transforms.Normalize(*cfg.data.meta.mean_std, inplace=True),
         ])
         test_transform = transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),
             transforms.ToTensor(),
-            transforms.Normalize(*dataset_meta.mean_std, inplace=True),
+            transforms.Normalize(*cfg.data.meta.mean_std, inplace=True),
         ])
         eval_transform = transforms.Compose([
             transforms.RandomResizedCrop(224),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
-            transforms.Normalize(*dataset_meta.mean_std, inplace=True),
+            transforms.Normalize(*cfg.data.meta.mean_std, inplace=True),
         ])
     else:
         pret_transform = transforms.Compose([
@@ -238,11 +148,11 @@ def main_process(args, dist: TorchDistManager):
             transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
             transforms.RandomGrayscale(p=0.2),
             transforms.ToTensor(),
-            transforms.Normalize(*dataset_meta.mean_std, inplace=True),
+            transforms.Normalize(*cfg.data.meta.mean_std, inplace=True),
         ])
         test_transform = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize(*dataset_meta.mean_std, inplace=True),
+            transforms.Normalize(*cfg.data.meta.mean_std, inplace=True),
         ])
         eval_transform = transforms.Compose([
             transforms.RandomResizedCrop(32),
@@ -250,7 +160,7 @@ def main_process(args, dist: TorchDistManager):
             # transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
             # transforms.RandomGrayscale(p=0.2),
             transforms.ToTensor(),
-            transforms.Normalize(*dataset_meta.mean_std, inplace=True),
+            transforms.Normalize(*cfg.data.meta.mean_std, inplace=True),
         ])
     
     # ds_choice = torch.randperm(8)[0]
@@ -259,86 +169,78 @@ def main_process(args, dist: TorchDistManager):
     # ds_root += f'_{ds_choice}'
     # master_echo(dist.is_master(), f'[dataset] choice={ds_choice}')
     
-    set_kw = dict(root=args.ds_root, download=False)
+    set_kw = dict(root=cfg.data.ds_root, download=False)
     if sub_imagenet:
-        set_kw['num_classes'] = args.num_classes
-    loader_kw = dict(num_workers=args.num_workers, pin_memory=args.pin_mem)
+        set_kw['num_classes'] = cfg.data.num_classes
+    loader_kw = dict(num_workers=cfg.data.num_workers, pin_memory=cfg.data.pin_mem)
     dist_sp_kw = dict(num_replicas=dist.world_size, rank=dist.rank, shuffle=True)
-
-    if args.torch_ddp:
-        assert args.batch_size % dist.world_size == 0
-        args.global_batch_size = args.batch_size
-        args.batch_size //= dist.world_size
-        args.global_eval_batch_size = args.eval_batch_size
-        args.eval_batch_size //= dist.world_size
 
     for rk in range(dist.world_size):
         if rk == dist.rank:
             master_echo(True, f'{time_str()}[rk{dist.rank:2d}] construct dataloaders... ', tail='\\c')
             
-            ds_clz = dataset_meta.clz
+            ds_clz = cfg.data.meta.clz
             pret_data = InputPairSet(ds_clz(train=True, transform=pret_transform, **set_kw))
-            pret_sp = DistributedSampler(pret_data, **dist_sp_kw) if args.torch_ddp else None
+            pret_sp = DistributedSampler(pret_data, **dist_sp_kw) if cfg.torch_ddp else None
             # todo: drop_last=True还会出现K不整除inp.shape[0]的情况吗？如果左下角的/mnt/lustre/tiankeyu/data_t1/moco_imn/exp/imn/200ep_cos_4gpu/实验没因为这个报error就说明没问题了
-            pret_ld = DataLoader(pret_data, batch_size=args.batch_size, sampler=pret_sp, shuffle=(pret_sp is None), drop_last=True, **loader_kw)
+            pret_ld = DataLoader(pret_data, batch_size=cfg.pretrain.batch_size, sampler=pret_sp, shuffle=(pret_sp is None), drop_last=True, **loader_kw)
             pret_iters = len(pret_ld)
-            lg.info(f'=> [main]: prepare pret_data (len={len(pret_data)}, bs={args.batch_size}, iters={pret_iters}, ddp={args.torch_ddp}): @ {args.ds_root}')
+            lg.info(f'=> [main]: prepare pret_data (len={len(pret_data)}, bs={cfg.pretrain.batch_size}, iters={pret_iters}, ddp={cfg.torch_ddp}): @ {cfg.data.ds_root}')
 
             if not on_imagenet:
                 knn_data = ds_clz(train=True, transform=test_transform, **set_kw)
-                knn_ld = DataLoader(knn_data, batch_size=args.knn_ld_or_test_ld_batch_size, shuffle=False, drop_last=False, **loader_kw)
+                knn_ld = DataLoader(knn_data, batch_size=cfg.pretrain.knn_ld_or_test_ld_batch_size, shuffle=False, drop_last=False, **loader_kw)
                 knn_iters = len(knn_ld)
-                lg.info(f'=> [main]: prepare knn_data  (len={len(knn_data)}, bs={args.knn_ld_or_test_ld_batch_size}, iters={knn_iters}, ddp=False for knn): @ {args.dataset}')
+                lg.info(f'=> [main]: prepare knn_data  (len={len(knn_data)}, bs={cfg.pretrain.knn_ld_or_test_ld_batch_size}, iters={knn_iters}, ddp=False for knn): @ {cfg.data.dataset}')
             
             test_data = ds_clz(train=False, transform=test_transform, **set_kw)
-            test_ld = DataLoader(test_data, batch_size=args.knn_ld_or_test_ld_batch_size, shuffle=False, drop_last=False, **loader_kw)
+            test_ld = DataLoader(test_data, batch_size=cfg.pretrain.knn_ld_or_test_ld_batch_size, shuffle=False, drop_last=False, **loader_kw)
             test_iters = len(test_ld)
-            lg.info(f'=> [main]: prepare test_data (len={len(test_data)}, bs={args.knn_ld_or_test_ld_batch_size}, iters={test_iters}, ddp=False for test): @ {args.dataset}')
+            lg.info(f'=> [main]: prepare test_data (len={len(test_data)}, bs={cfg.pretrain.knn_ld_or_test_ld_batch_size}, iters={test_iters}, ddp=False for test): @ {cfg.data.dataset}')
             
             eval_data = ds_clz(train=True, transform=eval_transform, **set_kw)
-            eval_sp = DistributedSampler(eval_data, **dist_sp_kw) if args.torch_ddp else None
-            eval_ld = DataLoader(eval_data, batch_size=args.eval_batch_size, sampler=eval_sp, shuffle=(eval_sp is None), drop_last=False, **loader_kw)
+            eval_sp = DistributedSampler(eval_data, **dist_sp_kw) if cfg.torch_ddp else None
+            eval_ld = DataLoader(eval_data, batch_size=cfg.lnr_eval.eval_batch_size, sampler=eval_sp, shuffle=(eval_sp is None), drop_last=False, **loader_kw)
             eval_iters = len(eval_ld)
-            lg.info(f'=> [main]: prepare eval_data (len={len(eval_data)}, bs={args.eval_batch_size}, iters={eval_iters}, ddp={args.torch_ddp}): @ {args.dataset}\n')
+            lg.info(f'=> [main]: prepare eval_data (len={len(eval_data)}, bs={cfg.lnr_eval.eval_batch_size}, iters={eval_iters}, ddp={cfg.torch_ddp}): @ {cfg.data.dataset}\n')
             
             master_echo(True, f'    finished!', '36', tail='')
         
         dist.barrier()
     
-    lg.info(f'=> [main]: args:\n{pf(vars(args))}\n')
     lg.info(
-        f'=> [main]: create the moco model: (ddp={args.torch_ddp})\n'
-        f'     arch={args.arch}, feature dim={args.moco_dim}\n'
-        f'     Q size={args.moco_k}, ema mom={args.moco_m}, moco T={args.moco_t}\n'
-        f'     sync bn={args.sbn}, mlp={args.mlp}, symmetric loss={args.moco_symm}'
+        f'=> [main]: create the moco model: (ddp={cfg.torch_ddp})\n'
+        f'     arch={cfg.moco.arch}, feature dim={cfg.moco.moco_dim}\n'
+        f'     Q size={cfg.moco.moco_k}, ema mom={cfg.moco.moco_m}, moco T={cfg.moco.moco_t}\n'
+        f'     sync bn={cfg.moco.sbn}, mlp={cfg.moco.mlp}, symmetric loss={cfg.moco.moco_symm}'
     )
     # create model
     model_kw = dict(
         lg=lg,
         on_imagenet=on_imagenet,
-        torch_ddp=args.torch_ddp,
-        arch=args.arch,
-        K=args.moco_k,  # queue size
-        m=args.moco_m,  # ema momentum
-        T=args.moco_t,  # temperature
-        sbn=args.sbn,   # actually, SyncBatchNorm is not used in mocov2's official implementation
-        mlp=args.mlp,
-        symmetric=args.moco_symm,
-        init=args.init
+        torch_ddp=cfg.torch_ddp,
+        arch=cfg.moco.arch,
+        K=cfg.moco.moco_k,  # queue size
+        m=cfg.moco.moco_m,  # ema momentum
+        T=cfg.moco.moco_t,  # temperature
+        sbn=cfg.moco.sbn,   # actually, SyncBatchNorm is not used in mocov2's official implementation
+        mlp=cfg.moco.mlp,
+        symmetric=cfg.moco.moco_symm,
+        init=cfg.moco.init
     )
-    pretrain_model = ModelMoCo(dim=args.moco_dim, **model_kw)
-    lnr_eval_model = ModelMoCo(dim=args.num_classes, **model_kw)
+    pretrain_model = ModelMoCo(dim=cfg.moco.moco_dim, **model_kw)
+    lnr_eval_model = ModelMoCo(dim=cfg.data.meta.num_classes, **model_kw)
     
-    if args.eval_resume_ckpt is None:
-        l_tb_lg._verbose = dist.is_master() or (args.pret_verbose and not args.torch_ddp)
+    if cfg.eval_resume_ckpt is None:
+        l_tb_lg._verbose = dist.is_master() or (cfg.pret_verbose and not cfg.torch_ddp)
         if on_imagenet:
             pret_knn_args = None
         else:
-            pret_knn_args = (knn_iters, knn_ld, args.knn_k, args.knn_t, knn_ld.dataset.targets)
+            pret_knn_args = (knn_iters, knn_ld, cfg.moco.knn_k, cfg.moco.knn_t, knn_ld.dataset.targets)
         pret_res_str = pretrain(
-            pret_knn_args, args.num_classes, ExpMeta(
-                args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.resume_ckpt,
-                args.epochs, args.lr, args.wd, args.nowd, args.coslr, args.schedule, args.warmup, args.grad_clip
+            pret_knn_args, cfg.data.meta.num_classes, ExpMeta(
+                cfg.torch_ddp, cfg.moco.arch, cfg.job.exp_root, os.path.split(cfg.job.exp_root)[-1], cfg.job.descs, cfg.log_freq, cfg.resume_ckpt,
+                cfg.pretrain.epochs, cfg.pretrain.lr, cfg.pretrain.wd, cfg.pretrain.nowd, cfg.pretrain.coslr, cfg.pretrain.schedule, cfg.pretrain.warmup, cfg.pretrain.grad_clip
             ),
             lg, g_tb_lg, l_tb_lg, dist, pretrain_model, pret_iters, pret_ld, pret_sp, test_iters, test_ld
         )
@@ -360,11 +262,11 @@ def main_process(args, dist: TorchDistManager):
         pret_res_str = '[resumed]'
 
     torch.cuda.empty_cache()
-    l_tb_lg._verbose = dist.is_master() or not args.torch_ddp
+    l_tb_lg._verbose = dist.is_master() or not cfg.torch_ddp
     linear_eval(
-        pret_res_str, args.num_classes, ExpMeta(
-            args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.eval_resume_ckpt,
-            args.eval_epochs, args.eval_lr, args.eval_wd, args.eval_nowd, args.eval_coslr, args.eval_schedule, args.eval_warmup, args.eval_grad_clip
+        pret_res_str, cfg.data.meta.num_classes, ExpMeta(
+            cfg.torch_ddp, cfg.moco.arch, cfg.job.exp_root, os.path.split(cfg.job.exp_root)[-1], cfg.job.descs, cfg.log_freq, cfg.eval_resume_ckpt,
+            cfg.lnr_eval.eval_epochs, cfg.lnr_eval.eval_lr, cfg.lnr_eval.eval_wd, cfg.lnr_eval.eval_nowd, cfg.lnr_eval.eval_coslr, cfg.lnr_eval.eval_schedule, cfg.lnr_eval.eval_warmup, cfg.lnr_eval.eval_grad_clip
         ),
         lg, g_tb_lg, l_tb_lg, dist, lnr_eval_model.encoder_q, eval_iters, eval_ld, eval_sp, test_iters, test_ld
     )
@@ -411,22 +313,15 @@ def pretrain(
     optimizer = torch.optim.SGD(params, lr=meta.lr, weight_decay=meta.wd, momentum=0.9)
     lg.info(f'=> [pretrain]: create op: model_cls={pret_model.__class__.__name__}, len(params)={len(params)}, max_lr={meta.lr}, wd={meta.wd}, nowd={meta.nowd}, coslr={meta.coslr}, warm up={meta.warmup}')
 
-    if not meta.coslr:
+    if not meta.coslr and meta.schedule is not None:
+        assert len(meta.schedule) > 0
         sc = meta.schedule
-        lg.info(f'=> [pretrain]: origin lr schedule={sc} ({type(sc)})')
-        if isinstance(sc, str):
-            sc = eval(sc)
-            assert isinstance(sc, list)
+        lg.info(f'=> [pretrain]: origin lr schedule={sc} (ep wise)')
         sc = sorted(sc)
         for i, milestone_epoch in enumerate(sc):
             sc[i] = milestone_epoch * pret_iters
-        lg.info(f'=> [pretrain]: updated lr schedule={sc} ({type(sc)})')
+        lg.info(f'=> [pretrain]: updated lr schedule={sc} (iter wise)')
         meta = meta._replace(schedule=sc)
-    
-    if meta.grad_clip == 'None':
-        meta = meta._replace(grad_clip=None)
-    else:
-        meta = meta._replace(grad_clip=float(meta.grad_clip))
 
     epoch_start = 0
     best_test_acc1 = -1e7
@@ -565,24 +460,17 @@ def linear_eval(
     params = list(filter(lambda p: p.requires_grad, params))
     optimizer = torch.optim.SGD(params, lr=meta.lr, weight_decay=meta.wd, momentum=0.9)
     lg.info(f'=> [lnr_eval]: create op: model_cls={encoder_q.__class__.__name__}, len(params)={len(params)}, max_lr={meta.lr}, wd={meta.wd}, nowd={meta.nowd}, coslr={meta.coslr}, warm up={meta.warmup}')
-    
-    if not meta.coslr:
+
+    if not meta.coslr and meta.schedule is not None:
+        assert len(meta.schedule) > 0
         sc = meta.schedule
-        lg.info(f'=> [lnr_eval]: origin lr schedule={sc} ({type(sc)})')
-        if isinstance(sc, str):
-            sc = eval(sc)
-            assert isinstance(sc, list)
+        lg.info(f'=> [lnr_eval]: origin lr schedule={sc} (ep wise)')
         sc = sorted(sc)
         for i, milestone_epoch in enumerate(sc):
             sc[i] = milestone_epoch * eval_iters
-        lg.info(f'=> [lnr_eval]: updated lr schedule={sc} ({type(sc)})')
+        lg.info(f'=> [lnr_eval]: updated lr schedule={sc} (iter wise)')
         meta = meta._replace(schedule=sc)
-    
-    if meta.grad_clip == 'None':
-        meta = meta._replace(grad_clip=None)
-    else:
-        meta = meta._replace(grad_clip=float(meta.grad_clip))
-    
+
     epoch_start = 0
     best_test_acc1 = best_test_acc5 = -5
     tr_loss_mov_avg = 0

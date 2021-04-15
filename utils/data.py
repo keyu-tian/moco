@@ -9,7 +9,7 @@ from utils.imagenet import ImageNetDataset, SubImageNetDataset, _target_num_per_
 from utils.misc import ints_ceil
 
 
-class _DatasetMeta(NamedTuple):
+class DatasetMeta(NamedTuple):
     img_ch: int
     train_val_set_size: int
     test_set_size: int
@@ -19,8 +19,8 @@ class _DatasetMeta(NamedTuple):
     mean_std: Tuple[tuple, tuple]
 
 
-dataset_metas: Dict[str, _DatasetMeta] = {
-    'imagenet': _DatasetMeta(
+dataset_metas: Dict[str, DatasetMeta] = {
+    'imagenet': DatasetMeta(
         img_ch=3,
         train_val_set_size=1281168,
         test_set_size=50000,
@@ -29,7 +29,7 @@ dataset_metas: Dict[str, _DatasetMeta] = {
         clz=ImageNetDataset,
         mean_std=((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ),
-    'subimagenet': _DatasetMeta(
+    'subimagenet': DatasetMeta(
         img_ch=3,
         train_val_set_size=_target_num_per_cls,
         test_set_size=50,
@@ -38,7 +38,7 @@ dataset_metas: Dict[str, _DatasetMeta] = {
         clz=SubImageNetDataset,
         mean_std=((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ),
-    'cifar10': _DatasetMeta(
+    'cifar10': DatasetMeta(
         img_ch=3,
         train_val_set_size=50000,
         test_set_size=10000,
@@ -47,7 +47,7 @@ dataset_metas: Dict[str, _DatasetMeta] = {
         clz=torchvision.datasets.CIFAR10,
         mean_std=((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
     ),
-    'cifar100': _DatasetMeta(
+    'cifar100': DatasetMeta(
         img_ch=3,
         train_val_set_size=50000,
         test_set_size=10000,
