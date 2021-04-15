@@ -52,10 +52,10 @@ def main():
     dist = TorchDistManager(args.exp_dirname, 'auto', 'auto')
 
     descs = [f'rk{rk:02d}' for rk in range(dist.world_size)]
-    loc_desc = descs[dist.rank]
+    local_desc = descs[dist.rank]
     job_kw = dict(
         sh_root=sh_root, job_name=job_name, exp_root=exp_root,
-        prj_root=prj_root, descs=descs, loc_desc=loc_desc
+        prj_root=prj_root, descs=descs, local_desc=local_desc
     )
     cfg = parse_cfg(args.cfg, dist.rank, dist.world_size, job_kw)
     
