@@ -89,6 +89,8 @@ parser.add_argument('--knn_t', default=0.1, type=float, help='softmax temperatur
 
 # exploration
 parser.add_argument('--rrc_test', type=str, default='')
+parser.add_argument('--stronger_rrc', action='store_true')
+parser.add_argument('--weaker_rrc', action='store_true')
 
 
 class CIFAR10PairTransform(object):
@@ -252,6 +254,12 @@ def main_process(args, dist: TorchDistManager):
         if dist.rank != 0:
             pret_transform = CIFAR10PairTransform(False, dataset_meta.img_size, args.rrc_test, transforms.Normalize(*dataset_meta.mean_std, inplace=True))
     else:
+        if args.stronger_rrc:
+            scale, ratio = (0.17, 1.0), (3.2 / 4., 4. / 3.2)
+        elif args.weaker_rrc:
+            scale, ratio = (0.03, 1.0), (2.5 / 4., 4. / 2.5)
+        else:
+            scale, ratio = (0.08, 1.0), (3. / 4., 4. / 3.)
         pret_transform = transforms.Compose([
             transforms.RandomResizedCrop(32),
             transforms.RandomHorizontalFlip(p=0.5),
@@ -647,8 +655,19 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
                 g_tb_lg.add_scalars(f'{prefix}/lr', {'actual': actual_lr}, cur_iter)
         
         if cur_iter % log_iters == 0:
-            # l_tb_lg.add_scalars(f'{prefix}/tr_loss', {'it': loss_avg.avg}, cur_iter)
-            l_tb_lg.add_scalar(f'{prefix}/train_loss', tr_loss_avg.avg, cur_iter)
+            grads = torch.cat([p.grad.data.view(-1) for p in params if p.requires_grad])
+            grads_abs = grads.abs()
+            k = max(1, round(len(grads) * 0.1))
+            grads_abs_topk_val, grads_abs_topk_idx = grads.abs().topk(k)[1]
+            topk_grads_mean = grads_abs_topk_val.mean().item()
+            topk_grads_std = grads[grads_abs_topk_idx].std().item()
+            grads_mean = grads_abs.mean().item()
+            grads_max = grads_abs.max().item()
+            grads_std = grads.std().item()
+            l_tb_lg.add_scalars(f'{prefix}/grad/abs', {'max': grads_max, 'mean': grads_mean, f'top10_{k}_mean': topk_grads_mean}, cur_iter)
+            l_tb_lg.add_scalars(f'{prefix}/grad/std', {'std': grads_std, f'top10_{k}_std': topk_grads_std}, cur_iter)
+            
+            l_tb_lg.add_scalar(f'{prefix}/train_loss', tr_loss_avg.last, cur_iter)
             if is_pretrain:
                 acc_str = ''
             else:
