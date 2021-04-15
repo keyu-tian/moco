@@ -39,7 +39,7 @@ pretrain:
     grad_clip: 5.
 
 lnr_eval:
-    eval_epochs: 2
+    eval_epochs: 100
     eval_batch_size: 256    # cifar: 512, imn: 256
     eval_lr: 30             # cifar & imn: 30 for b512 & b256
     eval_coslr: True
