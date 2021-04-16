@@ -255,9 +255,9 @@ def main_process(args, dist: TorchDistManager):
             pret_transform = CIFAR10PairTransform(False, dataset_meta.img_size, args.rrc_test, transforms.Normalize(*dataset_meta.mean_std, inplace=True))
     else:
         if args.stronger_rrc:
-            scale, ratio = (0.032, 1.0), (2.6 / 4., 4. / 2.6)
+            scale, ratio = (0.025, 1.0), (2 / 4., 4. / 2)
         elif args.weaker_rrc:
-            scale, ratio = (0.17, 1.0), (3.3 / 4., 4. / 3.3)
+            scale, ratio = (0.2, 1.0), (3.5 / 4., 4. / 3.5)
         else:
             scale, ratio = (0.08, 1.0), (3. / 4., 4. / 3.)
         pret_transform = transforms.Compose([
