@@ -7,7 +7,7 @@ from copy import deepcopy
 from datetime import datetime
 from logging import Logger
 from pprint import pformat as pf
-from typing import NamedTuple, Optional, List, Union
+from typing import NamedTuple, Optional, List, Union, Tuple
 
 import colorama
 import numpy as np
@@ -312,6 +312,14 @@ def main_process(args, dist: TorchDistManager):
             test_iters = len(test_ld)
             lg.info(f'=> [main]: prepare test_data (iters={test_iters}, ddp={args.torch_ddp}): @ {args.dataset}')
             
+            explore_data = CIFAR10Pair(root=args.ds_root, train=False, transform=pret_transform, download=False)
+            explore_ld = DataLoader(explore_data, batch_size=args.batch_size, shuffle=True, drop_last=True, **data_kw)
+            explore_img_batch_pairs = []
+            for i, (im1, im2) in enumerate(explore_ld):
+                if i == 2:
+                    break
+                explore_img_batch_pairs.append((im1.cuda(), im2.cuda()))
+            
             eval_data = CIFAR10(root=args.ds_root, train=True, transform=eval_transform, download=False)
             eval_ld = DataLoader(eval_data, batch_size=args.batch_size, shuffle=True, drop_last=True, **data_kw)
             eval_iters = len(eval_ld)
@@ -348,7 +356,7 @@ def main_process(args, dist: TorchDistManager):
         if not args.pret_verbose and not dist.is_master():
             l_tb_lg._verbose = False
         pret_res_str = pretrain_or_linear_eval(
-            (knn_iters, knn_ld, args.knn_k, args.knn_t, knn_ld.dataset.targets), args.num_classes, ExpMeta(
+            explore_img_batch_pairs, (knn_iters, knn_ld, args.knn_k, args.knn_t, knn_ld.dataset.targets), args.num_classes, ExpMeta(
                 args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.resume_ckpt,
                 args.epochs, args.lr, args.wd, args.nowd, args.coslr, args.schedule, args.warmup, args.grad_clip
             ),
@@ -373,7 +381,7 @@ def main_process(args, dist: TorchDistManager):
     
     l_tb_lg._verbose = True
     pretrain_or_linear_eval(
-        pret_res_str, args.num_classes, ExpMeta(
+        explore_img_batch_pairs, pret_res_str, args.num_classes, ExpMeta(
             args.torch_ddp, args.arch, args.exp_root, args.exp_dirname, args.descs, args.log_freq, args.eval_resume_ckpt,
             args.eval_epochs, args.eval_lr, args.eval_wd, args.eval_nowd, args.eval_coslr, args.eval_schedule, args.eval_warmup, args.eval_grad_clip
         ),
@@ -407,6 +415,7 @@ class ExpMeta(NamedTuple):
 
 
 def pretrain_or_linear_eval(
+        explore_img_batch_pairs: List[Tuple[torch.Tensor, torch.Tensor]],
         pretrain_knn_args_or_pret_res_str,
         num_classes: int,
         meta: ExpMeta, lg: Logger, g_tb_lg: SummaryWriter, l_tb_lg: SummaryWriter,
@@ -495,7 +504,7 @@ def pretrain_or_linear_eval(
             master_echo(dist.is_master(), f' @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s ', '36')
         
         start_t = time.time()
-        tr_loss: float = train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_iters, tr_ld, model, params, optimizer, initial_op_state, avgs)
+        tr_loss: float = train_one_ep(explore_img_batch_pairs, is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, tr_iters, tr_ld, model, params, optimizer, initial_op_state, avgs)
         tr_loss_mov_avg = tr_loss if tr_loss_mov_avg == 0 else tr_loss_mov_avg * 0.99 + tr_loss * 0.01
         train_t = time.time()
         
@@ -593,7 +602,7 @@ def pretrain_or_linear_eval(
 
 
 # one epoch
-def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_iters, tr_ld, model, params, op, initial_op_state, avgs):
+def train_one_ep(explore_img_batch_pairs, is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_iters, tr_ld, model, params, op, initial_op_state, avgs):
     if is_pretrain:
         model.train()
     else:
@@ -655,17 +664,35 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
                 g_tb_lg.add_scalars(f'{prefix}/lr', {'actual': actual_lr}, cur_iter)
         
         if cur_iter % log_iters == 0:
-            grads = torch.cat([p.grad.data.view(-1) for p in params if p.requires_grad])
-            grads_abs = grads.abs()
-            k = max(1, round(len(grads) * 0.0005))
-            grads_abs_topk_val, grads_abs_topk_idx = grads.abs().topk(k)
-            topk_grads_mean = grads_abs_topk_val.mean().item()
-            topk_grads_std = grads[grads_abs_topk_idx].std().item()
-            grads_mean = grads_abs.mean().item()
-            grads_max = grads_abs.max().item()
-            grads_std = grads.std().item()
-            l_tb_lg.add_scalars(f'{prefix}/grad/abs', {'max': grads_max, 'mean': grads_mean, f'top10_{k}_mean': topk_grads_mean}, cur_iter)
-            l_tb_lg.add_scalars(f'{prefix}/grad/std', {'std': grads_std, f'top10_{k}_std': topk_grads_std}, cur_iter)
+            if is_pretrain:
+                model.eval()
+
+            op.zero_grad()
+            
+            pair1, pair2 = explore_img_batch_pairs
+            # todo: here!
+            
+            va_inp, va_tar = next(self.va_itrt)
+            va_inp, va_tar = va_inp.cuda(), va_tar.cuda()
+            va_model_grads = torch.autograd.grad(self.val_test_crit(model(va_inp), va_tar), model.parameters())
+            if self.distributed_batch:
+                for g in va_model_grads:
+                    self.dist.allreduce(g)
+                    g.div_(self.dist.world_size)
+            if is_pretrain:
+                model.train()
+            
+            # grads = torch.cat([p.grad.data.view(-1) for p in params if p.requires_grad])
+            # grads_abs = grads.abs()
+            # k = max(1, round(len(grads) * 0.0005))
+            # grads_abs_topk_val, grads_abs_topk_idx = grads.abs().topk(k)
+            # topk_grads_mean = grads_abs_topk_val.mean().item()
+            # topk_grads_std = grads[grads_abs_topk_idx].std().item()
+            # grads_mean = grads_abs.mean().item()
+            # grads_max = grads_abs.max().item()
+            # grads_std = grads.std().item()
+            # l_tb_lg.add_scalars(f'{prefix}/grad/abs', {'max': grads_max, 'mean': grads_mean, f'top10_{k}_mean': topk_grads_mean}, cur_iter)
+            # l_tb_lg.add_scalars(f'{prefix}/grad/std', {'std': grads_std, f'top10_{k}_std': topk_grads_std}, cur_iter)
             
             l_tb_lg.add_scalar(f'{prefix}/train_loss', tr_loss_avg.last, cur_iter)
             if is_pretrain:
