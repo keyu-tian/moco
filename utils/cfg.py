@@ -83,7 +83,7 @@ class Cfg(NamedTuple):
 
 def parse_cfg(cfg_path, rank, world_size, job_kw) -> Cfg:
     with open(cfg_path) as f:
-        cfg = yaml.load(f, Loader=yaml.FullLoader) if hasattr(yaml, 'FullLoader') else yaml.load(f)
+        cfg = yaml.safe_load(f)
     cfg = EasyDict(cfg)
     
     # data cfg
