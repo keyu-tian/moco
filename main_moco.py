@@ -4,6 +4,7 @@ import argparse
 import builtins
 import math
 import os
+import datetime
 import random
 import shutil
 import time
@@ -222,7 +223,7 @@ def main_worker(args, dist):
         adjust_learning_rate(optimizer, epoch, args)
 
         # train for one epoch
-        epoch_avg_loss = train(train_loader, train_iters, model, criterion, optimizer, epoch, args, l_tb_lg, g_tb_lg)
+        epoch_avg_loss = train(train_loader, train_iters * args.epochs, train_iters, model, criterion, optimizer, epoch, args, l_tb_lg, g_tb_lg)
         tr_loss_mov_avg = epoch_avg_loss if tr_loss_mov_avg == 0 else tr_loss_mov_avg * 0.99 + epoch_avg_loss * 0.01
 
         test_acc1 = -epoch_avg_loss
@@ -247,7 +248,7 @@ def main_worker(args, dist):
     print(pret_res_str)
 
 
-def train(train_loader, train_iters, model, criterion, optimizer, epoch, args, l_tb_lg, g_tb_lg):
+def train(train_loader, all_iters, train_iters, model, criterion, optimizer, epoch, args, l_tb_lg, g_tb_lg):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -279,10 +280,10 @@ def train(train_loader, train_iters, model, criterion, optimizer, epoch, args, l
         # measure accuracy and record loss
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
         losses.update(loss.item(), images[0].size(0))
-        l_tb_lg.add_scalar(f'pretrain/train_loss', loss.val, cur_iter)
+        l_tb_lg.add_scalar(f'pretrain/train_loss', losses.val, cur_iter)
         bs = images[0].shape[0]
         tot_num += bs
-        tot_loss += loss.val * bs
+        tot_loss += losses.val * bs
 
         top1.update(acc1[0], images[0].size(0))
         top5.update(acc5[0], images[0].size(0))
@@ -298,8 +299,9 @@ def train(train_loader, train_iters, model, criterion, optimizer, epoch, args, l
         
         end = time.time()
 
+        secs = batch_time.avg * (all_iters - cur_iter - 1)
         if cur_iter % args.print_freq == 0:
-            progress.display(i)
+            progress.display(i, secs)
     return tot_loss / tot_num
 
 
@@ -339,8 +341,9 @@ class ProgressMeter(object):
         self.meters = meters
         self.prefix = prefix
 
-    def display(self, batch):
-        entries = [self.prefix + self.batch_fmtstr.format(batch)]
+    def display(self, batch, secs):
+        remain_time = datetime.timedelta(seconds=round(secs))
+        entries = [self.prefix + self.batch_fmtstr.format(batch) + str(remain_time)]
         entries += [str(meter) for meter in self.meters]
         print('\t'.join(entries))
 
