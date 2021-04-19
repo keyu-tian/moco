@@ -122,7 +122,7 @@ def main():
 
 def main_worker(args, dist):
     # suppress printing if not master
-    if args.multiprocessing_distributed:
+    if args.multiprocessing_distributed and args.rank != 0:
         def print_pass(*args):
             pass
         builtins.print = print_pass
