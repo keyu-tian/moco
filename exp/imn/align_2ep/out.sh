@@ -22,7 +22,7 @@ spring.submit run --gpu -n4 \
 --aug-plus \
 --cos \
 --moco_k=65536 \
---print_freq=200 \
+--print_freq=100 \
 --multiprocessing_distributed
 "
 
