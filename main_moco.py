@@ -343,8 +343,9 @@ class ProgressMeter(object):
 
     def display(self, batch, secs):
         remain_time = datetime.timedelta(seconds=round(secs))
-        entries = [self.prefix + self.batch_fmtstr.format(batch) + str(remain_time)]
+        entries = [self.prefix + self.batch_fmtstr.format(batch)]
         entries += [str(meter) for meter in self.meters]
+        entries.append(str(remain_time))
         print('\t'.join(entries))
 
     def _get_batch_fmtstr(self, num_batches):
