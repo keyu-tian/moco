@@ -280,7 +280,6 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
     )
     
     g_tb_lg.close(), l_tb_lg.close()
-    # dist.finalize()
 
 
 class ExpMeta(NamedTuple):

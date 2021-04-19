@@ -33,6 +33,7 @@ from utils.cfg import JobCfg
 from utils.dist import TorchDistManager
 from utils.file import create_loggers
 from utils.imagenet import ImageNetDataset
+from utils.misc import TopKHeap
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
@@ -121,6 +122,7 @@ def main():
             os.makedirs(args.exp_root)
 
     main_worker(args, dist)
+    dist.finalize()
 
 
 def main_worker(args, dist):
@@ -215,13 +217,22 @@ def main_worker(args, dist):
         num_workers=args.workers, pin_memory=True, sampler=train_sampler, drop_last=True)
     train_iters = len(train_loader)
 
+    best_test_acc1 = -1e7
+    tr_loss_mov_avg = 0
+    topk_acc1s = TopKHeap(maxsize=max(1, round(args.epochs * 0.1)))
     for epoch in range(args.start_epoch, args.epochs):
         if args.multiprocessing_distributed:
             train_sampler.set_epoch(epoch)
         adjust_learning_rate(optimizer, epoch, args)
 
         # train for one epoch
-        train(train_loader, train_iters, model, criterion, optimizer, epoch, args, l_tb_lg, g_tb_lg)
+        epoch_avg_loss = train(train_loader, train_iters, model, criterion, optimizer, epoch, args, l_tb_lg, g_tb_lg)
+        tr_loss_mov_avg = epoch_avg_loss if tr_loss_mov_avg == 0 else tr_loss_mov_avg * 0.99 + epoch_avg_loss * 0.01
+
+        test_acc1 = -epoch_avg_loss
+        topk_acc1s.push_q(test_acc1)
+        if test_acc1 > best_test_acc1:
+            best_test_acc1 = test_acc1
 
         if args.multiprocessing_distributed and args.rank == 0:
             save_checkpoint({
@@ -230,6 +241,14 @@ def main_worker(args, dist):
                 'state_dict': model.state_dict(),
                 'optimizer' : optimizer.state_dict(),
             }, is_best=False, filename='checkpoint_{:04d}.pth.tar'.format(epoch))
+
+    topk_test_acc1 = sum(topk_acc1s) / len(topk_acc1s)
+    pret_res_str = (
+        f' avg tr losses  {tr_loss_mov_avg:.3f}\n'
+        f' mean-top acc1s @ {topk_test_acc1:.3f}\n'
+        f' best     acc1s @ {best_test_acc1:.3f}'
+    )
+    print(pret_res_str)
 
 
 def train(train_loader, train_iters, model, criterion, optimizer, epoch, args, l_tb_lg, g_tb_lg):
@@ -247,6 +266,7 @@ def train(train_loader, train_iters, model, criterion, optimizer, epoch, args, l
     model.train()
 
     end = time.time()
+    tot_loss, tot_num = 0.0, 0
     for i, (images, _) in enumerate(train_loader):
         cur_iter = train_iters * epoch + i
         # measure data loading time
@@ -264,6 +284,9 @@ def train(train_loader, train_iters, model, criterion, optimizer, epoch, args, l
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
         losses.update(loss.item(), images[0].size(0))
         l_tb_lg.add_scalar(f'pretrain/train_loss', loss.val, cur_iter)
+        bs = images[0].shape[0]
+        tot_num += bs
+        tot_loss += loss.val * bs
 
         top1.update(acc1[0], images[0].size(0))
         top5.update(acc5[0], images[0].size(0))
@@ -281,6 +304,7 @@ def train(train_loader, train_iters, model, criterion, optimizer, epoch, args, l
 
         if i % args.print_freq == 0:
             progress.display(i)
+    return tot_loss / tot_num
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
