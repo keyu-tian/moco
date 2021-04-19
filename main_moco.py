@@ -302,7 +302,7 @@ def train(train_loader, train_iters, model, criterion, optimizer, epoch, args, l
         
         end = time.time()
 
-        if i % args.print_freq == 0:
+        if cur_iter % args.print_freq == 0:
             progress.display(i)
     return tot_loss / tot_num
 
