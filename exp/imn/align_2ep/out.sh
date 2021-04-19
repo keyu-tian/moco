@@ -17,7 +17,7 @@ spring.submit run --gpu -n4 \
 --batch_size=256 \
 --lr=0.03 \
 --wd=1e-4 \
---moco-t=0.2 \
+--moco_t=0.2 \
 --mlp \
 --aug-plus \
 --cos \
