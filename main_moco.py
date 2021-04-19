@@ -117,10 +117,6 @@ def main():
 
     args.world_size, args.rank = dist.world_size, dist.rank
 
-    if args.rank == 0:
-        if not os.path.exists(args.exp_root):
-            os.makedirs(args.exp_root)
-
     main_worker(args, dist)
     dist.finalize()
 
