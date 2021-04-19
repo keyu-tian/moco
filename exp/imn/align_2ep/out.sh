@@ -4,7 +4,7 @@ REL_PATH=../../../
 DIR_NAME="${PWD##*/}"
 EXP_DIR="exp-$(date "+%Y-%m%d-%H%M%S")"
 
-python "${REL_PATH}monitor.py" "${EXP_DIR}" &
+#python "${REL_PATH}monitor.py" "${EXP_DIR}" &
 
 PYTHONPATH=${PYTHONPATH}:${REL_PATH} GLOG_vmodule=MemcachedClient=-1 \
 spring.submit run --gpu -n4 \
@@ -22,23 +22,24 @@ spring.submit run --gpu -n4 \
 --aug-plus \
 --cos \
 --moco_k=65536 \
+--print_freq=200 \
 --multiprocessing_distributed
 "
 
-failed=$?
-echo "failed=${failed}"
+#failed=$?
+#echo "failed=${failed}"
 
 RESULT=$(tail "${EXP_DIR}"/log.txt -n 1)
 echo ""
 echo -e "\033[36mat ${PWD#}/${EXP_DIR}\033[0m"
 echo -e "\033[36m${RESULT#*@}\033[0m"
 
-#fg
-if [ $failed -ne 0 ]; then
-  sh "./kill.sh"
-  echo "killed."
-else
-  touch "${EXP_DIR}".terminate
-fi
+##fg
+#if [ $failed -ne 0 ]; then
+#  sh "./kill.sh"
+#  echo "killed."
+#else
+#  touch "${EXP_DIR}".terminate
+#fi
 
 

@@ -263,7 +263,9 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         optimizer.step()
 
         # measure elapsed time
-        batch_time.update(time.time() - end)
+        if i > 1:
+            batch_time.update(time.time() - end)
+        
         end = time.time()
 
         if i % args.print_freq == 0:
