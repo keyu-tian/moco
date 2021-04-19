@@ -9,6 +9,8 @@ import shutil
 import time
 import warnings
 from pprint import pformat
+from logging import Logger
+from tensorboardX import SummaryWriter
 
 import colorama
 import numpy as np
@@ -27,7 +29,9 @@ from torch.nn.parallel.distributed import DistributedDataParallel
 
 import moco.loader
 import moco.builder
+from utils.cfg import JobCfg
 from utils.dist import TorchDistManager
+from utils.file import create_loggers
 from utils.imagenet import ImageNetDataset
 
 model_names = sorted(name for name in models.__dict__
@@ -101,37 +105,40 @@ def main():
     colorama.init(autoreset=True)
     args = parser.parse_args()
     
-    sh_root = os.getcwd()
-    job_name = os.path.split(sh_root)[-1]
-    exp_root = os.path.join(sh_root, args.exp_dirname)
+    args.sh_root = os.getcwd()
+    args.job_name = os.path.split(args.sh_root)[-1]
+    args.exp_root = os.path.join(args.sh_root, args.exp_dirname)
     os.chdir(args.main_py_rel_path)
-    prj_root = os.getcwd()
-    os.chdir(sh_root)
+    args.prj_root = os.getcwd()
+    os.chdir(args.sh_root)
     
     dist = TorchDistManager(args.exp_dirname, 'auto', 'auto')
 
     args.world_size, args.rank = dist.world_size, dist.rank
 
     if args.rank == 0:
-        if not os.path.exists(exp_root):
-            os.makedirs(exp_root)
+        if not os.path.exists(args.exp_root):
+            os.makedirs(args.exp_root)
 
     main_worker(args, dist)
 
 
 def main_worker(args, dist):
-    # suppress printing if not master
-    if args.multiprocessing_distributed and args.rank != 0:
-        def print_pass(*args):
-            pass
-        builtins.print = print_pass
-
     args.weight_decay = float(args.weight_decay)
     if args.multiprocessing_distributed:
         args.global_batch_size = args.batch_size
         args.batch_size = round(args.batch_size / dist.world_size)
     print("=> args \n{}\n".format(pformat(vars(args))))
-    
+
+    lg, g_tb_lg, l_tb_lg = create_loggers(JobCfg(args.sh_root, args.job_name, args.exp_root, args.prj_root, [], f'rk{args.rank:02d}'), dist)
+    lg: Logger = lg  # just for the code completion (actually is `DistLogger`)
+    g_tb_lg: SummaryWriter = g_tb_lg  # just for the code completion (actually is `DistLogger`)
+    l_tb_lg: SummaryWriter = l_tb_lg  # just for the code completion (actually is `DistLogger`)
+
+    l_tb_lg._verbose = args.rank <= 1
+
+    builtins.print = lg.info
+
     print("=> creating model '{}'".format(args.arch))
     model = moco.builder.MoCo(
         models.__dict__[args.arch],
@@ -206,6 +213,7 @@ def main_worker(args, dist):
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
         num_workers=args.workers, pin_memory=True, sampler=train_sampler, drop_last=True)
+    train_iters = len(train_loader)
 
     for epoch in range(args.start_epoch, args.epochs):
         if args.multiprocessing_distributed:
@@ -213,7 +221,7 @@ def main_worker(args, dist):
         adjust_learning_rate(optimizer, epoch, args)
 
         # train for one epoch
-        train(train_loader, model, criterion, optimizer, epoch, args)
+        train(train_loader, train_iters, model, criterion, optimizer, epoch, args, l_tb_lg, g_tb_lg)
 
         if args.multiprocessing_distributed and args.rank == 0:
             save_checkpoint({
@@ -224,14 +232,14 @@ def main_worker(args, dist):
             }, is_best=False, filename='checkpoint_{:04d}.pth.tar'.format(epoch))
 
 
-def train(train_loader, model, criterion, optimizer, epoch, args):
+def train(train_loader, train_iters, model, criterion, optimizer, epoch, args, l_tb_lg, g_tb_lg):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
     top5 = AverageMeter('Acc@5', ':6.2f')
     progress = ProgressMeter(
-        len(train_loader),
+        train_iters,
         [batch_time, data_time, losses, top1, top5],
         prefix="Epoch: [{}]".format(epoch))
 
@@ -240,6 +248,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
     end = time.time()
     for i, (images, _) in enumerate(train_loader):
+        cur_iter = train_iters * epoch + i
         # measure data loading time
         data_time.update(time.time() - end)
 
@@ -254,6 +263,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         # measure accuracy and record loss
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
         losses.update(loss.item(), images[0].size(0))
+        l_tb_lg.add_scalar(f'pretrain/train_loss', loss.val, cur_iter)
+
         top1.update(acc1[0], images[0].size(0))
         top5.update(acc5[0], images[0].size(0))
 
