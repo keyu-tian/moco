@@ -9,7 +9,7 @@ def dfs(cwd, upd_fn):
             dfs(path, upd_fn)
         else:
             # if name == 'cfg.yaml' or name.endswith('.sh'):
-            if name == 'run.sh':
+            if name == 'cfg.yaml':
                 upd_fn(path)
 
 
@@ -20,8 +20,8 @@ if __name__ == '__main__':
         with open(path, 'w', encoding='utf-8') as fp:
             fp.write(
                 ctt.replace(
-                    '"${DIR_NAME}"',
-                    '"${DIR_NAME}----${EXP_DIR}"',
+                    'wd: 0.',
+                    'wd: 1e-4',
                 )
             )
     
