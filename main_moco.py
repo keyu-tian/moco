@@ -100,7 +100,6 @@ parser.add_argument('--cos', action='store_true',
 def main():
     colorama.init(autoreset=True)
     args = parser.parse_args()
-    args.weight_decay = float(args.weight_decay)
     
     sh_root = os.getcwd()
     job_name = os.path.split(sh_root)[-1]
@@ -127,8 +126,12 @@ def main_worker(args, dist):
             pass
         builtins.print = print_pass
 
-    # create model
+    args.weight_decay = float(args.weight_decay)
+    if args.multiprocessing_distributed:
+        args.global_batch_size = args.batch_size
+        args.batch_size = round(args.batch_size / dist.world_size)
     print("=> args \n{}\n".format(pformat(vars(args))))
+    
     print("=> creating model '{}'".format(args.arch))
     model = moco.builder.MoCo(
         models.__dict__[args.arch],
@@ -136,7 +139,6 @@ def main_worker(args, dist):
     print(model)
 
     if args.multiprocessing_distributed:
-        args.batch_size = round(args.batch_size / dist.world_size)
         model = DistributedDataParallel(model.cuda(), device_ids=[dist.dev_idx], output_device=dist.dev_idx)
     else:
         raise NotImplementedError("Only DistributedDataParallel is supported.")
