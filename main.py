@@ -647,6 +647,9 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
         data1, data2 = data1.cuda(non_blocking=True), data2.cuda(non_blocking=True)
         cuda_t = time.time()
         
+        assert torch.isnan(data1).sum().item() == 0
+        assert torch.isnan(data2).sum().item() == 0
+        
         if is_pretrain:
             loss = dist_or_local_model(data1, data2)
         else:
