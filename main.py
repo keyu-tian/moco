@@ -567,7 +567,7 @@ def linear_eval(
             master_echo(True, f'[rk{dist.rank:2d}] barrier test')
             dist.barrier()
             sanity_check(local_encoder_q.state_dict(), initial_encoder_q_state)
-            for name, p in encoder_q.named_parameters():
+            for name, p in local_encoder_q.named_parameters():
                 if name not in ['fc.weight', 'fc.bias']:
                     assert p.grad is None
             del initial_encoder_q_state
@@ -694,7 +694,7 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
                 l_tb_lg.add_scalar(f'{prefix}/train_acc1', tr_acc1_avg.avg, cur_iter)
                 l_tb_lg.add_scalar(f'{prefix}/train_acc5', tr_acc5_avg.avg, cur_iter)
             lg.info(
-                f'\n'
+                f'  grad [{orig_norm:.2g}]\n'
                 f'       {ep_str} it[{it + 1}/{tr_iters}]:'
                 f' L={tr_loss_avg.avg:.4g} {acc_str}      '
                 f' da[{data_t - last_t:.3f}], cu[{cuda_t - data_t:.3f}], fo[{forw_t - cuda_t:.3f}], ba[{back_t - forw_t:.3f}],'
