@@ -463,6 +463,12 @@ def linear_eval(
         dist: TorchDistManager, encoder_q: torch.nn.Module,
         eval_iters: int, eval_ld: DataLoader, eval_dist_sp: DistributedSampler, te_iters: int, te_ld: DataLoader,
 ):
+    for name, p in encoder_q.named_parameters():
+        if name not in ['fc.weight', 'fc.bias']:
+            p.requires_grad = False
+    encoder_q.fc.weight.data.normal_(mean=0.0, std=0.01)
+    encoder_q.fc.bias.data.zero_()
+    
     if meta.torch_ddp:
         encoder_q: DistributedDataParallel = DistributedDataParallel(encoder_q.cuda(), device_ids=[dist.dev_idx], output_device=dist.dev_idx)
     else:
@@ -503,10 +509,7 @@ def linear_eval(
     local_encoder_q = encoder_q.module if meta.torch_ddp else encoder_q
     initial_encoder_q_state = deepcopy(local_encoder_q.state_dict())
     for name, p in local_encoder_q.named_parameters():
-        if name not in ['fc.weight', 'fc.bias']:
-            p.requires_grad = False
-    local_encoder_q.fc.weight.data.normal_(mean=0.0, std=0.01)
-    local_encoder_q.fc.bias.data.zero_()
+        assert p.requires_grad == (name in ['fc.weight', 'fc.bias'])
     
     time.sleep(1 + 2 * dist.rank)
     epoch_speed = AverageMeter(3)
