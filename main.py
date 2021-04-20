@@ -534,7 +534,7 @@ def linear_eval(
         tr_loss_mov_avg = tr_loss if tr_loss_mov_avg == 0 else tr_loss_mov_avg * 0.99 + tr_loss * 0.01
         train_t = time.time()
         
-        test_acc1, test_acc5, test_loss = eval_test(lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters, te_ld, encoder_q.module if meta.torch_ddp else encoder_q, num_classes)
+        test_acc1, test_acc5, test_loss = eval_test(lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters, te_ld, local_encoder_q, num_classes)
         l_tb_lg.add_scalar(f'lnr_eval/test_acc1', test_acc1, epoch + 1)
         l_tb_lg.add_scalar(f'lnr_eval/test_acc5', test_acc5, epoch + 1)
         l_tb_lg.add_scalar(f'lnr_eval/test_loss', test_loss, epoch + 1)
@@ -567,6 +567,9 @@ def linear_eval(
             master_echo(True, f'[rk{dist.rank:2d}] barrier test')
             dist.barrier()
             sanity_check(local_encoder_q.state_dict(), initial_encoder_q_state)
+            for name, p in encoder_q.named_parameters():
+                if name not in ['fc.weight', 'fc.bias']:
+                    assert p.grad is None
             del initial_encoder_q_state
     
     topk_test_acc1 = sum(topk_acc1s) / len(topk_acc1s)
