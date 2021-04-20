@@ -362,6 +362,7 @@ def pretrain(
             pret_dist_sp.set_epoch(epoch)
         ep_str = f'%{len(str(meta.epochs))}d'
         ep_str %= epoch + 1
+        ep_str = f'ep[{ep_str}/{meta.epochs}]'
         if epoch % 7 == 0 or epoch == meta.epochs - 1:
             em_t = time.time()
             torch.cuda.empty_cache()
@@ -395,7 +396,7 @@ def pretrain(
         
         remain_time, finish_time = epoch_speed.time_preds(meta.epochs - (epoch + 1))
         lg.info(
-            f'=> [ep {ep_str}/{meta.epochs}]: L={tr_loss:.4g}, te-acc={test_acc1:5.2f}, tr={train_t - start_t:.2f}s, te={test_t - train_t:.2f}s       best={best_test_acc1:5.2f}\n'
+            f'=> {ep_str}: L={tr_loss:.4g}, te-acc={test_acc1:5.2f}, tr={train_t - start_t:.2f}s, te={test_t - train_t:.2f}s       best={best_test_acc1:5.2f}\n'
             f'    pretrain [{str(remain_time)}] ({finish_time})'
         )
         if dist.is_master():
@@ -519,6 +520,7 @@ def linear_eval(
             eval_dist_sp.set_epoch(epoch)
         ep_str = f'%{len(str(meta.epochs))}d'
         ep_str %= epoch + 1
+        ep_str = f'ep[{ep_str}/{meta.epochs}]'
         if epoch % 7 == 0 or epoch == meta.epochs - 1:
             em_t = time.time()
             torch.cuda.empty_cache()
@@ -548,7 +550,7 @@ def linear_eval(
         
         remain_time, finish_time = epoch_speed.time_preds(meta.epochs - (epoch + 1))
         lg.info(
-            f'=> [ep {ep_str}/{meta.epochs}]: L={tr_loss:.4g}, te-acc={test_acc1:5.2f}, tr={train_t - start_t:.2f}s, te={test_t - train_t:.2f}s       best={best_test_acc1:5.2f}\n'
+            f'=> ep_str: L={tr_loss:.4g}, te-acc={test_acc1:5.2f}, tr={train_t - start_t:.2f}s, te={test_t - train_t:.2f}s       best={best_test_acc1:5.2f}\n'
             f'    lnr_eval [{str(remain_time)}] ({finish_time})'
         )
         if dist.is_master():
@@ -687,7 +689,7 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
                 l_tb_lg.add_scalar(f'{prefix}/train_acc5', tr_acc5_avg.avg, cur_iter)
             lg.info(
                 f'\n'
-                f'       ep[{ep_str}] it[{it + 1}/{tr_iters}]:'
+                f'       {ep_str} it[{it + 1}/{tr_iters}]:'
                 f' L={tr_loss_avg.avg:.4g} {acc_str}      '
                 f' da[{data_t - last_t:.3f}], cu[{cuda_t - data_t:.3f}], fo[{forw_t - cuda_t:.3f}], ba[{back_t - forw_t:.3f}],'
                 f' cl[{clip_t - back_t:.3f}], op[{step_t - clip_t:.3f}]'
