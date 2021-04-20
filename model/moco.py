@@ -38,12 +38,8 @@ class ModelMoCo(nn.Module):
             self.encoder_k.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.encoder_k.fc)
         
         def create_final_encoder_q():
-            nonlocal mlp, arch, dim, norm_layer
-            q = model_entry(model_name=arch, num_classes=dim, norm_layer=norm_layer)
-            if mlp:  # hack: brute-force replacement
-                dim_mlp = q.fc.weight.shape[1]
-                q.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), q.fc)
-            return q
+            nonlocal arch, dim, norm_layer
+            return model_entry(model_name=arch, num_classes=dim, norm_layer=norm_layer)
         
         self.create_final_encoder_q = create_final_encoder_q
         

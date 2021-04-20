@@ -501,16 +501,11 @@ def linear_eval(
     
     local_encoder_q = encoder_q.module if meta.torch_ddp else encoder_q
     initial_encoder_q_state = deepcopy(local_encoder_q.state_dict())
-    for p in local_encoder_q.parameters():
-        p.detach_()
-    for m in local_encoder_q.fc.modules():
-        clz_name = m.__class__.__name__
-        if 'Linear' in clz_name:
-            m.weight.data.normal_(mean=0.0, std=0.01)
-            m.weight.requires_grad_()
-            if m.bias is not None:
-                m.bias.data.zero_()
-                m.bias.requires_grad_()
+    for name, p in local_encoder_q.named_parameters():
+        if name not in ['fc.weight', 'fc.bias']:
+            p.requires_grad = False
+    local_encoder_q.fc.weight.data.normal_(mean=0.0, std=0.01)
+    local_encoder_q.fc.bias.data.zero_()
     
     time.sleep(1 + 2 * dist.rank)
     epoch_speed = AverageMeter(3)
