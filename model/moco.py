@@ -43,6 +43,7 @@ class ModelMoCo(nn.Module):
             if mlp:  # hack: brute-force replacement
                 dim_mlp = q.fc.weight.shape[1]
                 q.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), q.fc)
+            return q
         
         self.create_final_encoder_q = create_final_encoder_q
         
