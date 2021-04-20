@@ -41,7 +41,7 @@ pretrain:
 lnr_eval:
     eval_epochs: 100
     eval_batch_size: 256    # cifar: 512, imn: 256
-    eval_lr: 0.01             # cifar & imn: 30 for b512 & b256
+    eval_lr: 0.007             # cifar & imn: 30 for b512 & b256
     eval_coslr: True
     eval_schedule: [60, 80]
     eval_warmup: True
