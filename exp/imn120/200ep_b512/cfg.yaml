@@ -1,5 +1,5 @@
 torch_ddp: True             # cifar: False, imagenet: True
-resume_ckpt: ~
+resume_ckpt: /mnt/lustre/tiankeyu/moco_imn/exp/imn120/200ep_b512/exp-2021-0415-130609/pretrain_final_loss5.872.pth
 eval_resume_ckpt: ~
 seed_base: ~
 seed: ~

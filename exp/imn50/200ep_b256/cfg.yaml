@@ -1,5 +1,5 @@
 torch_ddp: True             # cifar: False, imagenet: True
-resume_ckpt: /mnt/lustre/tiankeyu/moco_imn/exp/imn120/200ep_b256/exp-2021-0415-130146/pretrain_final_loss5.794.pth
+resume_ckpt: ~
 eval_resume_ckpt: ~
 seed_base: ~
 seed: ~
@@ -7,7 +7,7 @@ log_freq: 3
 pret_verbose: False
 
 data:
-    dataset: imagenet120    # cifar10, cifar100, imagenet, imagenetX (5<X<895, for sub imagenet)
+    dataset: imagenet50    # cifar10, cifar100, imagenet, imagenetX (5<X<895, for sub imagenet)
 #   meta: [will be assigned in runtime]
     ds_root: /mnt/lustre/share/images
     num_workers: 4
@@ -17,7 +17,7 @@ moco:
     arch: resnet50
     init: False
     moco_dim: 128   # cifar & imn: 128
-    moco_k: 16384   # cifar: 4096, imn: 65536
+    moco_k: 8192    # cifar: 4096, imn: 65536
     moco_m: 0.999   # cifar: 0.99, imn: 0.999
     moco_t: 0.2     # cifar: 0.1, imn(mocov1): 0.07, v2: 0.2
     sbn: False

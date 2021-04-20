@@ -238,6 +238,8 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
     )
     pretrain_model = ModelMoCo(dim=cfg.moco.moco_dim, **model_kw)
     lnr_eval_model = ModelMoCo(dim=cfg.data.meta.num_classes, **model_kw)
+    lnr_eval_encoder_q = lnr_eval_model.create_final_encoder_q()
+    del lnr_eval_model
     
     if cfg.eval_resume_ckpt is None:
         l_tb_lg._verbose = dist.is_master() or (cfg.pret_verbose and not cfg.torch_ddp)
@@ -264,7 +266,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
         for k in ks:
             if k.startswith('fc.'):
                 del d[k]
-        msg = lnr_eval_model.encoder_q.load_state_dict(d, strict=False)
+        msg = lnr_eval_encoder_q.load_state_dict(d, strict=False)
         assert len(msg.unexpected_keys) == 0 and all(k.startswith('fc.') for k in msg.missing_keys)
     else:
         pret_res_str = '[resumed]'
@@ -276,7 +278,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
             cfg.torch_ddp, cfg.moco.arch, cfg.job.exp_root, os.path.split(cfg.job.exp_root)[-1], cfg.job.descs, cfg.log_freq, cfg.eval_resume_ckpt,
             cfg.lnr_eval.eval_epochs, float(cfg.lnr_eval.eval_lr), float(cfg.lnr_eval.eval_wd), cfg.lnr_eval.eval_nowd, cfg.lnr_eval.eval_coslr, cfg.lnr_eval.eval_schedule, cfg.lnr_eval.eval_warmup, cfg.lnr_eval.eval_grad_clip
         ),
-        lg, g_tb_lg, l_tb_lg, dist, lnr_eval_model.encoder_q, eval_iters, eval_ld, eval_sp, test_iters, test_ld
+        lg, g_tb_lg, l_tb_lg, dist, lnr_eval_encoder_q, eval_iters, eval_ld, eval_sp, test_iters, test_ld
     )
     
     g_tb_lg.close(), l_tb_lg.close()
@@ -339,6 +341,7 @@ def pretrain(
         pret_resume = torch.load(meta.resume_ckpt, map_location='cpu')
         epoch_start = pret_resume['epoch'] + 1
         best_test_acc1 = pret_resume['best_test_acc1']
+        tr_loss_mov_avg = pret_resume.get('tr_loss_mov_avg', -1)
         [topk_acc1s.push_q(x) for x in pret_resume['topk_acc1s']]
         
         lg.info(f'=> [pretrain]: ckpt loaded from {meta.resume_ckpt}, last_ep={epoch_start - 1}, ep_start={epoch_start}')
@@ -381,7 +384,7 @@ def pretrain(
         best_updated = test_acc1 > best_test_acc1
         state_dict = {
             'arch': meta.arch, 'epoch': epoch, 'pret_model': pret_model.state_dict(), 'optimizer': optimizer.state_dict(),
-            'topk_acc1s': list(topk_acc1s), 'best_test_acc1': best_test_acc1,
+            'topk_acc1s': list(topk_acc1s), 'best_test_acc1': best_test_acc1, 'tr_loss_mov_avg': tr_loss_mov_avg,
         }
         if best_updated:
             best_test_acc1 = test_acc1
@@ -460,7 +463,7 @@ def linear_eval(
         eval_iters: int, eval_ld: DataLoader, eval_dist_sp: DistributedSampler, te_iters: int, te_ld: DataLoader,
 ):
     if meta.torch_ddp:
-        encoder_q: DistributedDataParallel = DistributedDataParallel(encoder_q.cuda(), device_ids=[dist.dev_idx], output_device=dist.dev_idx, find_unused_parameters=True)
+        encoder_q: DistributedDataParallel = DistributedDataParallel(encoder_q.cuda(), device_ids=[dist.dev_idx], output_device=dist.dev_idx)
     else:
         encoder_q: torch.nn.Module = encoder_q.cuda()
     params = filter_params(encoder_q) if meta.nowd else encoder_q.parameters()
@@ -532,6 +535,7 @@ def linear_eval(
         train_t = time.time()
         
         test_acc1, test_acc5, test_loss = eval_test(lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters, te_ld, encoder_q.module if meta.torch_ddp else encoder_q, num_classes)
+        l_tb_lg.add_scalar(f'lnr_eval/test_acc1', test_acc1, epoch + 1)
         l_tb_lg.add_scalar(f'lnr_eval/test_acc5', test_acc5, epoch + 1)
         l_tb_lg.add_scalar(f'lnr_eval/test_loss', test_loss, epoch + 1)
         test_t = time.time()
@@ -679,6 +683,7 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
         if cur_iter % log_iters == 0:
             # l_tb_lg.add_scalars(f'{prefix}/tr_loss', {'it': loss_avg.avg}, cur_iter)
             l_tb_lg.add_scalar(f'{prefix}/train_loss', tr_loss_avg.last, cur_iter)
+            l_tb_lg.add_scalar(f'{prefix}/train_loss_ep', tr_loss_avg.avg, cur_iter)
             if is_pretrain:
                 acc_str = ''
             else:
