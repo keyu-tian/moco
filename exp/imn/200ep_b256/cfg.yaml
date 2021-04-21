@@ -36,7 +36,7 @@ pretrain:
     warmup: True
     wd: 1e-4
     nowd: False
-    grad_clip: 5.
+    grad_clip: 4.
 
 lnr_eval:
     eval_epochs: 100
@@ -47,6 +47,6 @@ lnr_eval:
     eval_warmup: True
     eval_wd: 0
     eval_nowd: False
-    eval_grad_clip: 5.
+    eval_grad_clip: 4.
 
 

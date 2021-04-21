@@ -10,13 +10,13 @@ from utils.misc import init_params
 
 
 class ModelMoCo(nn.Module):
-    def __init__(self, lg, on_imagenet, torch_ddp=False, arch='resnet18', dim=128, K=4096, m=0.99, T=0.1, sbn=False, mlp=False, symmetric=True, init=False):
+    def __init__(self, lg, on_imagenet, torch_ddp, arch, dim, K, m, T, sbn=False, mlp=False, symmetric=True, init=False):
         super(ModelMoCo, self).__init__()
         
         self.K = K
         self.m = m
         self.T = T
-        self.symmetric = symmetric
+        # self.symmetric = symmetric
         self.torch_ddp = torch_ddp
         
         # create the encoders
@@ -147,13 +147,15 @@ class ModelMoCo(nn.Module):
     
         return x_gather[idx_this]
     
-    def contrastive_loss(self, im_q, im_k):
+    def forward(self, im_q, im_k):
         # compute query features
         q = self.encoder_q(im_q)  # queries: NxC
-        q = nn.functional.normalize(q, dim=1)  # already normalized
+        q = nn.functional.normalize(q, dim=1)
         
         # compute key features
         with torch.no_grad():  # no gradient to keys
+            self._momentum_update_key_encoder()  # update the key encoder
+
             # shuffle for making use of BN
             if self.torch_ddp:
                 im_k_, idx_unshuffle = self._batch_shuffle_ddp(im_k)
@@ -161,7 +163,7 @@ class ModelMoCo(nn.Module):
                 im_k_, idx_unshuffle = self._batch_shuffle_single_gpu(im_k)
             
             k = self.encoder_k(im_k_)  # keys: NxC
-            k = nn.functional.normalize(k, dim=1)  # already normalized
+            k = nn.functional.normalize(k, dim=1)
             
             # undo shuffle
             if self.torch_ddp:
@@ -185,37 +187,37 @@ class ModelMoCo(nn.Module):
         # labels: positive key indicators
         labels = torch.zeros(logits.shape[0], dtype=torch.long).cuda()
         
-        loss = F.cross_entropy(logits, labels)
+        self._dequeue_and_enqueue(k)
         
-        return loss, q, k
+        return F.cross_entropy(logits, labels)
     
-    def forward(self, im1, im2, training=True):
-        """
-        Input:
-            im_q: a batch of query images
-            im_k: a batch of key images
-        Output:
-            loss
-        """
-        
-        # update the key encoder
-        if training:
-            with torch.no_grad():  # no gradient to keys
-                self._momentum_update_key_encoder()
-        
-        # compute loss
-        if self.symmetric:  # asymmetric loss
-            loss_12, q1, k2 = self.contrastive_loss(im1, im2)
-            loss_21, q2, k1 = self.contrastive_loss(im2, im1)
-            loss = loss_12 + loss_21
-            k = torch.cat([k1, k2], dim=0)
-        else:  # asymmetric loss
-            loss, q, k = self.contrastive_loss(im1, im2)
-        
-        if training:
-            self._dequeue_and_enqueue(k)
-        
-        return loss
+    # def forward(self, im1, im2, training=True):
+    #     """
+    #     Input:
+    #         im_q: a batch of query images
+    #         im_k: a batch of key images
+    #     Output:
+    #         loss
+    #     """
+    #
+    #     # update the key encoder
+    #     if training:
+    #         with torch.no_grad():  # no gradient to keys
+    #             self._momentum_update_key_encoder()
+    #
+    #     # compute loss
+    #     if self.symmetric:  # asymmetric loss
+    #         loss_12, q1, k2 = self.contrastive_loss(im1, im2)
+    #         loss_21, q2, k1 = self.contrastive_loss(im2, im1)
+    #         loss = loss_12 + loss_21
+    #         k = torch.cat([k1, k2], dim=0)
+    #     else:  # asymmetric loss
+    #         loss, q, k = self.contrastive_loss(im1, im2)
+    #
+    #     if training:
+    #         self._dequeue_and_enqueue(k)
+    #
+    #     return loss
 
 
 # utils

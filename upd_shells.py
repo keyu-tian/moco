@@ -20,8 +20,8 @@ if __name__ == '__main__':
         with open(path, 'w', encoding='utf-8') as fp:
             fp.write(
                 ctt.replace(
-                    'eval_wd: 1e-4',
-                    'eval_wd: 0',
+                    'grad_clip: 5.',
+                    'grad_clip: 4.',
                 )
             )
     
