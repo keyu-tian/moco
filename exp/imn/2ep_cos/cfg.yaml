@@ -45,7 +45,7 @@ lnr_eval:
     eval_coslr: True
     eval_schedule: [60, 80]
     eval_warmup: True
-    eval_wd: 1e-4
+    eval_wd: 0
     eval_nowd: False
     eval_grad_clip: 5.
 
