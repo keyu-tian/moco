@@ -45,8 +45,7 @@ def create_or_upd_explore_table(base, abs_path, rid=None, **kwargs):
     dd = dict(tags=tags, **kwargs)
     record_dt(dd)
     dd['abs_path'] = abs_path
-    exp_root_dirname, datetime_dirname = abs_path.split('/')[-2:]
-    dd['exp'] = exp_root_dirname
+    dd['exp'] = os.sep.join(filter(lambda x: x != 'exp', abs_path.split(os.sep)[-3:-1]))
 
     if rid is None:
         q = base.filter(t_name, f"abs_path='{dd['abs_path']}'")
