@@ -401,7 +401,7 @@ def pretrain(
         )
         if dist.is_master():
             upd_seatable_file(
-                meta.exp_root, dist, pr=min((epoch + 1) / meta.epochs, 0.999), lr=f'{meta.lr:.1g}', knn_acc=best_test_acc1,
+                meta.exp_root, dist, pr=min((epoch + 1) / meta.epochs, 0.999), lr=f'{meta.lr:.1g}', knn_acc=-15750 if np.isnan(test_acc1) else test_acc1,
                 rem=remain_time.seconds, end_t=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + remain_time.seconds)),
             )
         
@@ -558,7 +558,7 @@ def linear_eval(
         )
         if dist.is_master():
             upd_seatable_file(
-                meta.exp_root, dist, pr=(epoch + 1) / meta.epochs, v_lr=f'{meta.lr:.1g}', test_acc=best_test_acc1,
+                meta.exp_root, dist, pr=(epoch + 1) / meta.epochs, v_lr=f'{meta.lr:.1g}', test_acc=test_acc1,
                 rem=remain_time.seconds, end_t=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + remain_time.seconds)),
             )
         
