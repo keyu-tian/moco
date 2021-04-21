@@ -25,6 +25,12 @@ def pil_loader(img_bytes):
 class ImageNetDataset(Dataset):
     # /mnt/lustre/share/images
     def __init__(self, root: str, train, transform, download=False, read_from='mc'):
+        if not os.path.exists(root):
+            root = list(filter(
+                os.path.exists,
+                ['/mnt/lustre/share/images', '/mnt/lustrenew/share/images',
+                 '/mnt/lustre2/share/images', '/mnt/lustreold/share/images']
+            ))[0]
         root = pathlib.Path(root)
         tr_va_root, tr_va_meta = root / 'train', root / 'meta' / 'train.txt'
         te_root, te_meta = root / 'val', root / 'meta' / 'val.txt'
