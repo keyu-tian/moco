@@ -22,17 +22,25 @@ class ModelMoCo(nn.Module):
         # create the encoders
         if on_imagenet:
             if sbn:
-                norm_layer = nn.BatchNorm2d # todo: SyncBN?
+                lg.info(f'[BN]: using nn.SyncBatchNorm')
+                norm_layer = nn.SyncBatchNorm
             else:
+                lg.info(f'[BN]: using nn.BatchNorm2d')
                 norm_layer = nn.BatchNorm2d
         else:
             bn_splits = 1 if sbn else 8
-            norm_layer = partial(SplitBatchNorm, num_splits=bn_splits) if bn_splits > 1 else nn.BatchNorm2d
+            if bn_splits > 1:
+                lg.info(f'[BN]: using {"SplitBatchNorm"}, bn_splits={bn_splits}')
+                norm_layer = partial(SplitBatchNorm, num_splits=bn_splits)
+            else:
+                lg.info(f'[BN]: using nn.BatchNorm2d')
+                norm_layer = nn.BatchNorm2d
         
         self.encoder_q = model_entry(model_name=arch, num_classes=dim, norm_layer=norm_layer)
         self.encoder_k = model_entry(model_name=arch, num_classes=dim, norm_layer=norm_layer)
         
         if mlp:  # hack: brute-force replacement
+            lg.info(f'[MLP]: using MLP')
             dim_mlp = self.encoder_q.fc.weight.shape[1]
             self.encoder_q.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.encoder_q.fc)
             self.encoder_k.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.encoder_k.fc)
@@ -44,6 +52,7 @@ class ModelMoCo(nn.Module):
         self.create_final_encoder_q = create_final_encoder_q
         
         if init:
+            lg.info(f'[INIT]: params inited')
             init_params(self.encoder_q, output=lg.info)
         
         for param_q, param_k in zip(self.encoder_q.parameters(), self.encoder_k.parameters()):
