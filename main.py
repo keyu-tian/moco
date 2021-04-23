@@ -61,7 +61,11 @@ def main():
     
     rk = dist.rank
     if rk == 0:
-        main_process(cfg, dist)
+        try:
+            main_process(cfg, dist)
+        except Exception as e:
+            upd_seatable_file(exp_root, verbose=True, pr=-1., rem=0)
+            raise e
     else:
         try:
             main_process(cfg, dist)
@@ -75,9 +79,9 @@ def main():
 seatable_kw = {}
 
 
-def upd_seatable_file(exp_root, dist, **kw):
-    seatable_kw.update(kw)
-    if dist.is_master():
+def upd_seatable_file(exp_root, verbose, **kw):
+    if verbose:
+        seatable_kw.update(kw)
         with open(os.path.join(exp_root, seatable_fname), 'w') as fp:
             json.dump([exp_root, seatable_kw], fp)
 
@@ -114,7 +118,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
         lg.info(f'=> [main]: using {"the same seed" if same_seed else "diff seeds"}')
     
     upd_seatable_file(
-        cfg.job.exp_root, dist,
+        cfg.job.exp_root, dist.is_master(),
         gpu=dist.world_size if cfg.torch_ddp else 1,
         ds=cfg.data.dataset,
         # mom=args.moco_m,
@@ -401,7 +405,7 @@ def pretrain(
         )
         if dist.is_master():
             upd_seatable_file(
-                meta.exp_root, dist, pr=min((epoch + 1) / meta.epochs, 0.999), lr=f'{meta.lr:.1g}', knn_acc=-15750 if np.isnan(test_acc1) else test_acc1,
+                meta.exp_root, dist.is_master(), pr=min((epoch + 1) / meta.epochs, 0.999), lr=f'{meta.lr:.1g}', knn_acc=-15750 if np.isnan(test_acc1) else test_acc1,
                 rem=remain_time.seconds, end_t=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + remain_time.seconds)),
             )
         
@@ -447,7 +451,7 @@ def pretrain(
     
     if dist.is_master():
         upd_seatable_file(
-            meta.exp_root, dist, pr=0.999, rem=180,      # linear_eval
+            meta.exp_root, dist.is_master(), pr=0.999, rem=180,      # linear_eval
             knn_acc=seatable_acc, knn_L=seatable_mov_avg,
             end_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         )
@@ -560,7 +564,7 @@ def linear_eval(
         )
         if dist.is_master():
             upd_seatable_file(
-                meta.exp_root, dist, pr=(epoch + 1) / meta.epochs, v_lr=f'{meta.lr:.1g}', test_acc=test_acc1,
+                meta.exp_root, dist.is_master(), pr=(epoch + 1) / meta.epochs, v_lr=f'{meta.lr:.1g}', test_acc=test_acc1,
                 rem=remain_time.seconds, end_t=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + remain_time.seconds)),
             )
         
@@ -615,7 +619,7 @@ def linear_eval(
     
     if dist.is_master():
         upd_seatable_file(
-            meta.exp_root, dist, pr=1., rem=0,
+            meta.exp_root, dist.is_master(), pr=1., rem=0,
             test_acc=seatable_acc, test_L=seatable_mov_avg,
             end_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         )
