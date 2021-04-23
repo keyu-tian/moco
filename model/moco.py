@@ -22,18 +22,18 @@ class ModelMoCo(nn.Module):
         # create the encoders
         if on_imagenet:
             if sbn:
-                lg.info(f'[BN]: using nn.SyncBatchNorm')
+                lg.info(f'[SBN]: using nn.SyncBatchNorm')
                 norm_layer = nn.SyncBatchNorm
             else:
-                lg.info(f'[BN]: using nn.BatchNorm2d')
+                lg.info(f'[NBN]: using nn.BatchNorm2d')
                 norm_layer = nn.BatchNorm2d
         else:
             bn_splits = 1 if sbn else 8
             if bn_splits > 1:
-                lg.info(f'[BN]: using {"SplitBatchNorm"}, bn_splits={bn_splits}')
+                lg.info(f'[SPBN]: using {"SplitBatchNorm"}, bn_splits={bn_splits}')
                 norm_layer = partial(SplitBatchNorm, num_splits=bn_splits)
             else:
-                lg.info(f'[BN]: using nn.BatchNorm2d')
+                lg.info(f'[NBN]: using nn.BatchNorm2d')
                 norm_layer = nn.BatchNorm2d
         
         self.encoder_q = model_entry(model_name=arch, num_classes=dim, norm_layer=norm_layer)
