@@ -19,8 +19,8 @@ moco:
     moco_dim: 128   # cifar & imn: 128
     moco_k: 8192    # cifar: 4096, imn: 65536
     moco_m: 0.99   # cifar: 0.99, imn: 0.999
-    moco_t: 0.15    # cifar: 0.1, imn(mocov1): 0.07, v2: 0.2
-    sbn: True
+    moco_t: 0.2    # cifar: 0.1, imn(mocov1): 0.07, v2: 0.2
+    sbn: False
     mlp: True
     moco_symm: False
     knn_k: 200      # only for cifar
@@ -30,7 +30,7 @@ pretrain:
     epochs: 200
     batch_size: 128         # cifar: 512, imn: 256
     knn_ld_or_test_ld_batch_size: 256
-    lr: 0.05                # cifar: 0.06 for b512, imn: 0.03 for b256
+    lr: 0.03                # cifar: 0.06 for b512, imn: 0.03 for b256
     coslr: True
     schedule: [120, 160]    # step decay
     warmup: True
