@@ -419,6 +419,7 @@ def pretrain(
             f' best     acc1s @ {best_test_acc1:.3f}'
         )
         seatable_acc = best_test_acc1
+        seatable_mov_avg = tr_loss_mov_avg
     else:
         topk_accs = dist.dist_fmt_vals(topk_test_acc1, None)
         best_accs = dist.dist_fmt_vals(best_test_acc1, None)
@@ -433,6 +434,7 @@ def pretrain(
             f' best     acc1s @ (max={best_accs.max():.3f}, mean={best_accs.mean():.3f}, std={best_accs.std():.3f}) {str(best_accs).replace(chr(10), " ")})'
         )
         seatable_acc = best_accs.mean().item()
+        seatable_mov_avg = tr_loss_mov_avgs.mean().item()
     
     [g_tb_lg.add_scalar(f'pretrain/knn_best1', seatable_acc, e) for e in [epoch_start, meta.epochs]]
     dt = time.time() - loop_start_t
@@ -446,7 +448,7 @@ def pretrain(
     if dist.is_master():
         upd_seatable_file(
             meta.exp_root, dist, pr=0.999, rem=180,      # linear_eval
-            knn_acc=seatable_acc,
+            knn_acc=seatable_acc, knn_L=seatable_mov_avg,
             end_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         )
         lines = pret_res_str.splitlines()
@@ -582,6 +584,7 @@ def linear_eval(
             f' best     acc1s @ {best_test_acc1:.3f}'
         )
         seatable_acc = best_test_acc1
+        seatable_mov_avg = tr_loss_mov_avg
     else:
         topk_accs = dist.dist_fmt_vals(topk_test_acc1, None)
         best_accs = dist.dist_fmt_vals(best_test_acc1, None)
@@ -598,6 +601,7 @@ def linear_eval(
             f' best     acc1s @ (max={best_accs.max():.3f}, mean={best_accs.mean():.3f}, std={best_accs.std():.3f}) {str(best_accs).replace(chr(10), " ")})'
         )
         seatable_acc = best_accs.mean().item()
+        seatable_mov_avg = tr_loss_mov_avgs.mean().item()
     
     lg.info(f'==> pretrain.results: \n{pret_res_str}\n')
     [g_tb_lg.add_scalar(f'lnr_eval/test_best1', seatable_acc, e) for e in [epoch_start, meta.epochs]]
@@ -612,7 +616,7 @@ def linear_eval(
     if dist.is_master():
         upd_seatable_file(
             meta.exp_root, dist, pr=1., rem=0,
-            test_acc=seatable_acc,
+            test_acc=seatable_acc, test_L=seatable_mov_avg,
             end_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         )
         lines = eval_str.splitlines()
