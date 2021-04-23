@@ -9,7 +9,6 @@ import time
 from copy import deepcopy
 
 import colorama
-from seatable_api import Base
 
 from meta import seatable_fname
 
@@ -65,8 +64,10 @@ def create_or_upd_explore_table(base, abs_path, rid=None, **kwargs):
 
 def main():
     colorama.init(autoreset=True)
+    
     ssl_aug_api_token = '669cdc2fc382cefb698d4c629dc2164e1f6772c5'
     server_url = 'https://cloud.seatable.cn'
+    from seatable_api import Base
     base = Base(ssl_aug_api_token, server_url)
     base.auth()
     

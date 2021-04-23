@@ -1,0 +1,5 @@
+[2021.04.24] pretrain:
+    1. 【不要sbn】：lr=[0.01 0.02 0.03] 情况下都是：nbn.loss高 finetune.acc也高，sbn.loss低，finetune.acc也低
+    2. 【pret lr过小，则eval不适应大lr】：从0.01到0.03一直涨点； 0.01-0.02的涨幅比0.02-0.03的涨幅更大；三个cfg下pretrain的loss都是3.7-3.9，但是lnr_eval loss movavg依次是150、50、10，这说明pretrain的lr如果过小，那eval的时候就会很不适应大lr！
+    3. 【目前最好】：综上nbn>sbn；lr0.03>ot；mo .99略好于.995远好于.999；t0.2略好于0.1远好于0.07
+    4. 【下一步】：最好的baseline是nbn_lr0.03_m0.99_t0.2；那么从两个方向尝试，1是继续增大pret lr，2是grid sea lnr_eval HP
