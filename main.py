@@ -59,8 +59,7 @@ def main():
     )
     cfg = parse_cfg(args.cfg, dist.rank, dist.world_size, job_kw)
     
-    rk = dist.rank
-    if rk == 0:
+    if dist.is_master():
         try:
             main_process(cfg, dist)
         except Exception as e:
