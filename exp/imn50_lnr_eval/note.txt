@@ -1,0 +1,13 @@
+[2021.04.24] pretrain:
+    1. 【不要sbn】：lr=[0.01 0.02 0.03] 情况下都是：nbn.loss高 finetune.acc也高，sbn.loss低，finetune.acc也低
+    2. 【pret lr过小，则eval不适应大lr】：从0.01到0.03一直涨点； 0.01-0.02的涨幅比0.02-0.03的涨幅更大；三个cfg下pretrain的loss都是3.7-3.9，但是lnr_eval loss movavg依次是150、50、10，这说明pretrain的lr如果过小，那eval的时候就会很不适应大lr！
+    3. 【目前最好】：综上nbn>sbn；lr0.03>ot；mo .99略好于.995远好于.999；t0.2略好于0.1远好于0.07
+    4. 【下一步】：最好的baseline是nbn_lr0.03_vlr5_m0.99_t0.2；那么从两个方向尝试，1是继续增大pret lr，2是grid sea lnr_eval HP
+
+[2021.04.25] finetune:
+    1. 【上次实验】：之前最好是nbn_lr0.03_vlr5_m0.99_t0.2 是 72.96，现在最好是 nbn_lr0.05_vlr2 是 79.60
+    2. 【pret lr过小，则eval不适应大lr】：从0.01-0.02-0.03-0.05一直稳定涨点，pret loss轻微递减，然而lev loss显著下降。因此目前还是应该进一步增大pret lr
+    3. 【bs增大会轻微变差】：差大概0.5，不过为了速度可以牺牲？
+    4. 【vlr】：目前感觉plr0.03不用看了因为v loss都到几十了；在plr0.05的时候，vlr从2到5到10 20 30，性能一直在变差，v loss也一直在升；但是大bs的时候反而喜欢大lr
+    5. 【目前最好】b128：nbn_lr0.05_vlr2 是 79.60     b256：nbn_lr0.1_vlr20 是 79.20
+    6. 【下一步】：为了妥协速度（16h vs 9h），使用b256；  b256 是喜欢大pretlr、大vlr，因此从这两个方向尝试
