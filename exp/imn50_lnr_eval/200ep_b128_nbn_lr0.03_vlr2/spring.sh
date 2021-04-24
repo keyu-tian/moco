@@ -29,3 +29,16 @@ else
 fi
 
 
+
+# pretrain exp-2021-0424-060048:
+#  avg tr losses  5.322
+#  mean-top acc1s @ -4.874
+#  best     acc1s @ -4.868
+
+
+# lnr_eval exp-2021-0424-060048:
+#  avg tr losses  5.631
+#  best     acc5s @ 91.800
+#  mean-top acc1s @ 74.080
+#  best     acc1s @ 74.560
+
