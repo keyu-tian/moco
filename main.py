@@ -129,17 +129,22 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
     )
 
     if on_imagenet:
-        pret_transform = transforms.Compose([
-            transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
+        trans_ls = [
+            transforms.RandomResizedCrop(224, scale=cfg.aug.rrc_range),
             transforms.RandomApply([
-                transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
+                transforms.ColorJitter(*cfg.aug.cj_args)  # not strengthened
             ], p=0.8),
             transforms.RandomGrayscale(p=0.2),
-            transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
+            transforms.RandomApply([GaussianBlur(cfg.aug.blur_args)], p=0.5),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize(*cfg.data.meta.mean_std, inplace=True),
-        ])
+        ]
+        if cfg.aug.no_gray:
+            trans_ls.pop(2)
+        if cfg.aug.no_flip:
+            trans_ls.pop(-3)
+        pret_transform = transforms.Compose(trans_ls)
         test_transform = transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),

@@ -18,6 +18,14 @@ class JobCfg(NamedTuple):
     local_desc: str
 
 
+class AugCfg(NamedTuple):
+    no_gray: bool = False
+    no_flip: bool = False
+    rrc_range: list = [0.2, 1.]
+    cj_args: list = [0.4, 0.4, 0.4, 0.1]
+    blur_args: list = [.1, 2.]
+
+
 class DataCfg(NamedTuple):
     dataset: str = 'cifar10'
     meta: DatasetMeta = None
@@ -75,6 +83,7 @@ class Cfg(NamedTuple):
     pret_verbose: bool = False
     
     job: JobCfg = None
+    aug: AugCfg = None
     data: DataCfg = None
     moco: MocoCfg = None
     pretrain: PretrainCfg = None
@@ -132,6 +141,7 @@ def parse_cfg(cfg_path, rank, world_size, job_kw) -> Cfg:
         pret_verbose=cfg.pret_verbose,
         
         job=JobCfg(**job_kw),
+        aug=AugCfg(**cfg.get('aug', {})),
         data=data_cfg,
         moco=MocoCfg(**cfg.moco),
         pretrain=PretrainCfg(**cfg.pretrain),

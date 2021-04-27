@@ -322,5 +322,51 @@ class GaussianBlur(object):
     def __call__(self, x: Image.Image):
         sigma = random.uniform(self.sigma[0], self.sigma[1])
         x = x.filter(ImageFilter.GaussianBlur(radius=sigma))
+        
+        import scipy.ndimage as ndimage
+        x = ndimage.gaussian_filter(x, sigma=(sigma, sigma, 0), mode='reflect')
+
+        # todo：微分性有问题；一旦sigma<0.25，即radius<1，则会导致x=[0,]，会把sigma乘0导致没有梯度
+        # todo：不过也有解决方案：反正sigma<0.25的时候代表原图，那可以直接把下限从0.1改成0.25！
+        lb, ub = 0.25, 2
+        sigma = torch.tensor(0.3, requires_grad=True)
+        sigma = (ub - lb) * sigma.sigmoid() + lb
+        
+        radius = round(4 * sigma.item())
+        sigma2 = sigma * sigma
+        x = torch.arange(-radius, radius+1)
+        blur = torch.exp(-0.5 / sigma2 * x ** 2)
+        blur = blur / blur.sum()
+        blur = blur.unsqueeze(1).mm(blur.unsqueeze(0))
+        assert abs(blur.sum().item() - 1.) < 1e-3
+        
+        sharpen = -blur
+        sharpen[radius, radius] += 2
+        assert abs(sharpen.sum().item() - 1.) < 1e-3
+
+        lb, ub = -1, 1
+        mag = torch.tensor(-0.5, requires_grad=True)
+        mag = (ub - lb) * mag.sigmoid() + lb
+        
+        I = torch.tensor([
+            [0., 0., 0.],
+            [0., 1., 0.],
+            [0., 0., 0.],
+        ])
+        # max_a = 0.5
+        # d = torch.tensor([
+        #     [-max_a/12, -max_a/6, -max_a/12],
+        #     [-max_a/6,  +max_a, -max_a/6],
+        #     [-max_a/12, -max_a/6, -max_a/12],
+        # ])
+        d = torch.tensor([
+            [-0.05, -0.10, -0.05],
+            [-0.10, +0.60, -0.10],
+            [-0.05, -0.10, -0.05],
+        ])
+        assert abs(d.sum().item()) < 1e-4
+        blur = mag * d + I
+        sharpen = mag * d + I
+        
         return x
 
