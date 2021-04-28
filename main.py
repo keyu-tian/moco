@@ -13,6 +13,7 @@ import numpy as np
 import colorama
 import torch
 import torch.nn.functional as F
+from retrying import retry
 from rsa.prime import is_prime
 from tensorboardX import SummaryWriter
 from torch.nn.parallel.distributed import DistributedDataParallel
@@ -78,12 +79,13 @@ def main():
 seatable_kw = {}
 
 
+@retry(stop_max_attempt_number=5, wait_fixed=500)
 def upd_seatable_file(exp_root, verbose, **kw):
     if verbose:
         seatable_kw.update(kw)
         with open(os.path.join(exp_root, seatable_fname), 'w') as fp:
             json.dump([exp_root, seatable_kw], fp)
-
+        
 
 def main_process(cfg: Cfg, dist: TorchDistManager):
     # for i in range(dist.world_size):

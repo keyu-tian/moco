@@ -3,3 +3,4 @@ tqdm~=4.48.2
 rsa~=4.6
 seatable-api
 easydict
+retrying
