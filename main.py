@@ -132,7 +132,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
 
     if on_imagenet:
         trans_ls = [
-            transforms.RandomResizedCrop(224, scale=cfg.aug.rrc_range),
+            transforms.RandomResizedCrop(224, scale=cfg.aug.rrc_range, ratio=cfg.aug.rrc_ratio),
             transforms.RandomApply([
                 transforms.ColorJitter(*cfg.aug.cj_args)  # not strengthened
             ], p=0.8),

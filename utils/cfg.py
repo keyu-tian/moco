@@ -22,6 +22,7 @@ class AugCfg(NamedTuple):
     no_gray: bool = False
     no_flip: bool = False
     rrc_range: list = [0.2, 1.]
+    rrc_ratio: list = [3/4, 4/3]
     cj_args: list = [0.4, 0.4, 0.4, 0.1]
     blur_args: list = [.1, 2.]
 
@@ -94,6 +95,17 @@ def parse_cfg(cfg_path, rank, world_size, job_kw) -> Cfg:
     with open(cfg_path) as f:
         cfg = yaml.safe_load(f)
     cfg = EasyDict(cfg)
+    
+    # aug cfg
+    if 'aug' in cfg:
+        for key in ['rrc_range', 'rrc_ratio']:
+            if key in cfg.aug:
+                if isinstance(cfg.aug[key][0], str):
+                    cfg.aug[key] = [eval(r) for r in cfg.aug[key]]
+                assert len(cfg.aug[key]) == 2
+                cfg.aug[key] = (min(cfg.aug[key]), max(cfg.aug[key]))
+                if key == 'rrc_ratio':
+                    assert abs(cfg.aug[key][0] * cfg.aug[key][1] - 1) < 1e-4
     
     # data cfg
     cfg.data.dataset = cfg.data.dataset.strip().lower()

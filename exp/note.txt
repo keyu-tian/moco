@@ -25,3 +25,17 @@
 [2021.04.27] finetune：
     1. 【继续调大lr发现不太稳定】，目前还是lr=0.2的时候比较稳定，然后vlr取30.
     2. 【下一步】：现在需要打探一下aug范围，所以尝试微调下RRC、CJ、Blur的超参范看看
+
+[2021.04.28] grid search aug param bounds
+    0. 额外发现：minimize LE loss 真的很有效！
+    1. flip 似乎有点用
+    2. gray非常有用！
+    3. 因此flip和gray都不搜，默认加；为了防止hsv不错乱，gray加的方式是在augmenter返回后对三通道以一定概率求均值（求mean和原图，乘一个01互补的 bernoulli mask再相加就可以了）
+
+    4. hue从0.1到0.2，影响不大
+    5. cjx1.25会变好
+    6. 因此cj变成(0.5, 0.5, 0.5, 0.2)吧
+
+    5. blur目前上限值最高应该是1；也可能需要更低，还要观察下；要不要去掉blur也等着看
+    6. rrc_area_range最好的范围？rrc_ratio最好的范围？都还要看结果
+
