@@ -25,6 +25,15 @@ class AugCfg(NamedTuple):
     rrc_ratio: list = [3/4, 4/3]
     cj_args: list = [0.4, 0.4, 0.4, 0.1]
     blur_args: list = [.1, 2.]
+    gblur: bool = True
+    
+    test_rand_aug: bool = False
+    expansion: int = 256
+    act_name: str = 'tanh'    # 'tanh', 'swish'
+    padding_mode: str = 'border'    # 'border', 'reflection' or 'zeros'
+    target_norm: float = 1.35
+    soft_target: float = 0.2
+    
 
 
 class DataCfg(NamedTuple):

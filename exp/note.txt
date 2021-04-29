@@ -36,6 +36,7 @@
     5. cjx1.25会变好
     6. 因此cj变成(0.5, 0.5, 0.5, 0.2)吧
 
-    5. blur目前上限值最高应该是1；也可能需要更低，还要观察下；要不要去掉blur也等着看
-    6. rrc_area_range最好的范围？rrc_ratio最好的范围？都还要看结果
+    5. blur目前max_ratio=1最好；noblur都比blur上限=2好；另外需要尝试下Rand Sharpness可不可以？貌似Rand Sharpness更好搜吧
+    6. rrc_area_range最好的范围？现在min0.1已经比min0.2 要更好了；而max=0.85比max=1要好（就是说不crop 不好）；所以最后定成0.1-0.9如何？
+    7. rrc_ratio最好的范围：2/3 3/2 吧。
 

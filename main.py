@@ -22,7 +22,8 @@ from torch.utils.data.distributed import DistributedSampler
 from torchvision import transforms
 
 # from aug_op.rrc import CIFAR10PairTransform
-from aug_op.ops import GaussianBlur
+from aug_op.aug import Augmenter
+from aug_op.ops import GaussianBlur, RandSharpness
 from meta import seatable_fname, run_shell_name
 from model.moco import ModelMoCo
 from utils.cfg import parse_cfg, Cfg, namedtuple_to_str
@@ -137,7 +138,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
                 transforms.ColorJitter(*cfg.aug.cj_args)  # not strengthened
             ], p=0.8),
             transforms.RandomGrayscale(p=0.2),
-            transforms.RandomApply([GaussianBlur(cfg.aug.blur_args)], p=0.5),
+            transforms.RandomApply([GaussianBlur(cfg.aug.blur_args) if cfg.aug.gblur else RandSharpness()], p=0.5),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize(*cfg.data.meta.mean_std, inplace=True),
@@ -146,7 +147,23 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
             trans_ls.pop(2)
         if cfg.aug.no_flip:
             trans_ls.pop(-3)
+        
+        if cfg.aug.test_rand_aug:
+            trans_ls = [
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+            ]
+            auto_aug = Augmenter(
+                ch_means=cfg.data.meta.mean_std[0], ch_stds=cfg.data.meta.mean_std[1],
+                expansion=cfg.aug.expansion, act_name=cfg.aug.act_name,
+                padding_mode=cfg.aug.padding_mode,
+                target_norm=cfg.aug.target_norm, soft_target=cfg.aug.soft_target,
+            ).cuda()
+        else:
+            auto_aug = None
+        
         pret_transform = transforms.Compose(trans_ls)
+        lg.info(f'=> [pret transform] (auto_aug: {auto_aug is not None}): {pret_transform}')
         test_transform = transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),
@@ -258,7 +275,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
         else:
             pret_knn_args = (knn_iters, knn_ld, cfg.moco.knn_k, cfg.moco.knn_t, knn_ld.dataset.targets)
         pret_res_str = pretrain(
-            pret_knn_args, cfg.data.meta.num_classes, ExpMeta(
+            pret_knn_args, auto_aug, cfg.data.meta.num_classes, ExpMeta(
                 cfg.torch_ddp, cfg.moco.arch, cfg.job.exp_root, os.path.split(cfg.job.exp_root)[-1], cfg.job.descs, cfg.log_freq, cfg.resume_ckpt,
                 cfg.pretrain.epochs, float(cfg.pretrain.lr), float(cfg.pretrain.wd), cfg.pretrain.nowd, cfg.pretrain.coslr, cfg.pretrain.schedule, cfg.pretrain.warmup, cfg.pretrain.grad_clip
             ),
@@ -317,6 +334,7 @@ class ExpMeta(NamedTuple):
 
 def pretrain(
         pretrain_knn_args,
+        auto_aug: Optional[Augmenter],
         num_classes: int,
         meta: ExpMeta, lg: Logger, g_tb_lg: SummaryWriter, l_tb_lg: SummaryWriter,
         dist: TorchDistManager, pret_model: ModelMoCo,
@@ -379,7 +397,7 @@ def pretrain(
             master_echo(dist.is_master(), f' @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s,      pre_be={best_test_acc1:5.2f}', '36')
         
         start_t = time.time()
-        tr_loss: float = train_one_ep(True, 'pretrain', lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, pret_iters, pret_ld, pret_model, params, optimizer, avgs)
+        tr_loss: float = train_one_ep(True, 'pretrain', lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, pret_iters, pret_ld, auto_aug, pret_model, params, optimizer, avgs)
         tr_loss_mov_avg = tr_loss if tr_loss_mov_avg == 0 else tr_loss_mov_avg * 0.99 + tr_loss * 0.01
         train_t = time.time()
         
@@ -636,7 +654,7 @@ def linear_eval(
 
 
 # one epoch
-def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_iters, tr_ld, dist_or_local_model, params, op, avgs):
+def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_iters, tr_ld, auto_aug, dist_or_local_model, params, op, avgs):
     if is_pretrain:
         dist_or_local_model.train()
     else:
@@ -659,6 +677,8 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
         data_t = time.time()
         bs = data1.shape[0]
         data1, data2 = data1.cuda(non_blocking=True), data2.cuda(non_blocking=True)
+        if auto_aug is not None:
+            data1, data2 = auto_aug(data1, normalizing=True)
         cuda_t = time.time()
         
         assert torch.isnan(data1).sum().item() == 0

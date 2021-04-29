@@ -10,6 +10,28 @@ import numpy as np
 import torch
 
 
+class SwishAutoFn(torch.autograd.Function):
+    """ Memory Efficient Swish
+    From: https://blog.ceshine.net/post/pytorch-memory-swish/
+    """
+    
+    @staticmethod
+    def forward(ctx, x):
+        result = x.mul(torch.sigmoid(x))
+        ctx.save_for_backward(x)
+        return result
+    
+    @staticmethod
+    def backward(ctx, grad_output):
+        x = ctx.saved_variables[0]
+        sigmoid_x = torch.sigmoid(x)
+        return grad_output * (sigmoid_x * (1 + x * (1 - sigmoid_x)))
+
+
+def swish(x, inplace=False):
+    return SwishAutoFn.apply(x)
+
+
 def is_prime(x):
     if x < 2:
         return False

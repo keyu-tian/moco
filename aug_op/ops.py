@@ -315,6 +315,17 @@ class Cutout(object):
         return img
 
 
+class RandSharpness(object):
+    def __init__(self):
+        pass
+    
+    def __call__(self, x: Image.Image):
+        mag = random.uniform(-1, 1)
+        return ImageEnhance.Sharpness(x).enhance(
+            1 + mag
+        )
+
+
 class GaussianBlur(object):
     def __init__(self, sigma=[.1, 2.]):
         self.sigma = sigma
@@ -332,7 +343,7 @@ class GaussianBlur(object):
     
         # todo：微分性有问题；一旦sigma<0.25，即radius<1，则会导致x=[0,]，会把sigma乘0导致没有梯度
         # todo：不过也有解决方案：反正sigma<0.25的时候代表原图，那可以直接把下限从0.1改成0.25！
-        lb, ub = 0.25, 2
+        lb, ub = 0.25, 1
         sigma = torch.tensor(0.3, requires_grad=True)
         sigma = (ub - lb) * sigma.sigmoid() + lb
     
