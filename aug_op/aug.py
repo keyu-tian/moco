@@ -196,7 +196,7 @@ class Augmenter(nn.Module):
     def denormalize(self, img):
         return (img * self.STD) + self.MEAN
     
-    def forward(self, im_batch: Tensor, normalize=True):
+    def forward(self, im_batch: Tensor, normalizing=True):
         im_batch = torch.clamp(im_batch, min=0., max=1.)
         
         oup: Tensor = self.generator(im_batch)  # todo: 要把图片输入进去是不是会导致网络很大？要输的话是不是输6通道比较好？如果直接输入一个一维gaussian呢？
@@ -212,7 +212,7 @@ class Augmenter(nn.Module):
             if self.rand_grayscale:
                 aug_imgs = self.grayscale(self.rand_grayscale_p, aug_imgs)
             
-            if normalize:
+            if normalizing:
                 aug_imgs = self.normalize(aug_imgs)
             
             two_views.append(aug_imgs)
