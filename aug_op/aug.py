@@ -102,7 +102,7 @@ class AugGenerator(nn.Module):
         # ]]).repeat(B, 1)
         # return concated_aug_vector
 
-        feature = uniform_noise(B, self.input0_dim)
+        feature = uniform_noise(B, self.input0_dim).to(im_batch.device)
         for noisy_fc in self.fcs:
             noisy_fc: FCBlock
             feature = noisy_fc(feature)
@@ -307,7 +307,7 @@ class Augmenter(nn.Module):
             return homo_coords
 
     @staticmethod   # todo 不debug的时候记得用 reflection 而不是 zeros
-    def _apply_transform_to_batch(img_batch: torch.Tensor, trans_batch: torch.Tensor, homo_coords: torch.Tensor, padding_mode='border', align_corners=False):   # todo: 'border', 'reflection' or 'zeros'
+    def _apply_transform_to_batch(img_batch: Tensor, trans_batch: Tensor, homo_coords: Tensor, padding_mode='border', align_corners=False):   # todo: 'border', 'reflection' or 'zeros'
         """
         :param img_batch: (B, C, H, W)
         :param trans_batch: (B, 3, 3)
@@ -334,7 +334,7 @@ class Augmenter(nn.Module):
         gray: Tensor = r * 299/1000 + g * 587/1000 + b * 114/1000
         gray = gray.unsqueeze(1).repeat(1, 3, 1, 1)
         
-        mask = torch.bernoulli(torch.empty(B, 1, 1, 1), p=prob)
+        mask = torch.bernoulli(torch.empty(B, 1, 1, 1), p=prob).to(img.device)
         # print(f'mask ratio: {mask.mean() * 100:5.2f}%')
         return mask * gray + (1-mask) * img
         
