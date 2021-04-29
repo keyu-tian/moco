@@ -44,7 +44,7 @@ class FCBlock(nn.Module):
 
     def forward(self, x):   # x: (B, inp_d-noi_d)
         B = x.shape[0]
-        noise = uniform_noise(B, self.noi_d)
+        noise = uniform_noise(B, self.noi_d).to(x.device)
         noisy_x = torch.cat((x, noise), dim=1)
         
         feature = self.fc(noisy_x)
