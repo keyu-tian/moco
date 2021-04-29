@@ -150,6 +150,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
         
         if cfg.aug.test_rand_aug:
             trans_ls = [
+                transforms.Resize(224),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
             ]
