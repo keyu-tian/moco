@@ -320,7 +320,7 @@ class RandSharpness(object):
         pass
     
     def __call__(self, x: Image.Image):
-        mag = random.uniform(-1, 1)
+        mag = random.uniform(-0.9, 0.9)
         return ImageEnhance.Sharpness(x).enhance(
             1 + mag
         )
