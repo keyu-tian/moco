@@ -355,7 +355,10 @@ def pretrain(
     params = filter_params(pret_model) if meta.nowd else pret_model.parameters()
     params = list(filter(lambda p: p.requires_grad, params))
     optimizer = torch.optim.SGD(params, lr=meta.lr, weight_decay=meta.wd, momentum=0.9)
-    aug_optimizer = torch.optim.AdamW(auto_aug.parameters(), lr=meta.auglr, weight_decay=meta.augwd)
+    if auto_aug is not None:
+        aug_optimizer = torch.optim.AdamW(auto_aug.parameters(), lr=meta.auglr, weight_decay=meta.augwd)
+    else:
+        aug_optimizer = None
     lg.info(f'=> [pretrain]: create op: model_cls={pret_model.__class__.__name__}, len(params)={len(params)}, max_lr={meta.lr}, max_alr={meta.auglr}, wd={meta.wd}, nowd={meta.nowd}, coslr={meta.coslr}, warm up={meta.warmup}')
 
     if not meta.coslr and meta.schedule is not None:
@@ -385,7 +388,8 @@ def pretrain(
         
         lg.info(f'=> [pretrain]: load optimizer.state from {meta.resume_ckpt}')
         optimizer.load_state_dict(pret_resume['optimizer'])
-        aug_optimizer.load_state_dict(pret_resume['aug_optimizer'])
+        if aug_optimizer is not None:
+            aug_optimizer.load_state_dict(pret_resume['aug_optimizer'])
     
     time.sleep(1 + 2 * dist.rank)
     epoch_speed = AverageMeter(3)
@@ -421,7 +425,7 @@ def pretrain(
         topk_acc1s.push_q(test_acc1)
         best_updated = test_acc1 > best_test_acc1
         state_dict = {
-            'arch': meta.arch, 'epoch': epoch, 'pret_model': pret_model.state_dict(), 'optimizer': optimizer.state_dict(), 'aug_optimizer': aug_optimizer.state_dict(),
+            'arch': meta.arch, 'epoch': epoch, 'pret_model': pret_model.state_dict(), 'optimizer': optimizer.state_dict(), 'aug_optimizer': aug_optimizer.state_dict() if aug_optimizer is not None else {},
             'topk_acc1s': list(topk_acc1s), 'best_test_acc1': best_test_acc1, 'tr_loss_mov_avg': tr_loss_mov_avg,
         }
         if best_updated:
