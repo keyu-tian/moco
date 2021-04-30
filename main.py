@@ -561,7 +561,7 @@ def linear_eval(
             master_echo(dist.is_master(), f' @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s,      eva_be={best_test_acc1:5.2f}', '36')
         
         start_t = time.time()
-        tr_loss: float = train_one_ep(False, 'lnr_eval', lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, eval_iters, eval_ld, encoder_q, params, optimizer, avgs)
+        tr_loss: float = train_one_ep(False, 'lnr_eval', lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, eval_iters, eval_ld, None, encoder_q, params, optimizer, avgs)
         tr_loss_mov_avg = tr_loss if tr_loss_mov_avg == 0 else tr_loss_mov_avg * 0.99 + tr_loss * 0.01
         train_t = time.time()
         
