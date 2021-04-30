@@ -52,7 +52,7 @@ pretrain:
     schedule: [120, 160]    # step decay
     warmup: True
     wd: 1e-4
-    augwd: 1e-5
+    augwd: 5e-5
     nowd: False
     grad_clip: 4.
     aug_grad_clip: 10.

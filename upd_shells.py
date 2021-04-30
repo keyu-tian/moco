@@ -20,8 +20,8 @@ if __name__ == '__main__':
         with open(path, 'w', encoding='utf-8') as fp:
             fp.write(
                 ctt.replace(
-                    'aug_grad_clip: 2.',
-                    'aug_grad_clip: 10.',
+                    'augwd: 1e-5',
+                    'augwd: 5e-5',
                 )
             )
     

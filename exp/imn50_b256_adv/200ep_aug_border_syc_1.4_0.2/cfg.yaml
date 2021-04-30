@@ -15,11 +15,11 @@ aug:
     gblur: False
 
     auto_aug: True
-    adversarial: True
+    adversarial: False
     expansion: 256
     act_name: tanh    # 'tanh', 'swish'
     padding_mode: border    # 'border', 'reflection' or 'zeros'
-    target_norm: 1.3
+    target_norm: 1.4
     soft_target: 0.2
 
 data:
@@ -52,7 +52,7 @@ pretrain:
     schedule: [120, 160]    # step decay
     warmup: True
     wd: 1e-4
-    augwd: 1e-5
+    augwd: 5e-5
     nowd: False
     grad_clip: 4.
     aug_grad_clip: 10.
