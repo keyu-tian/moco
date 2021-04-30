@@ -8,7 +8,7 @@ from math import pi
 # from mcmc_aug.agent import AugPolicy, MCMCAug
 # from pipeline import BasicPipeline
 from aug_op.aug import Augmenter
-from aug_op.ops import GaussianBlur, Sharpness
+from aug_op.ops import GaussianBlur, Sharpness, RandSharpness
 from utils.misc import set_seed
 from aug_op.cspace import rgb_to_hsv, hsv_to_rgb
 
@@ -83,23 +83,24 @@ if __name__ == '__main__':
     # para = load_para(fname)
     para = None
     
-    seed = 123
+    seed = 8
     
     
     set_seed(seed)
     aa = Augmenter(
         ch_means=MEAN, ch_stds=STD,
+        adversarial=True,
         searching=[
             'color_aug',
             'blur_aug',
             'crop_aug',
         ],
         expansion=256,
-        act_name='swish',
+        act_name='tanh',
         padding_mode='zeros',   # 'border', 'reflection' or 'zeros'
         rand_grayscale_p=0,
-        target_norm=1.3,
-        soft_target=0.2,
+        target_norm=1.1,
+        soft_target=0.3,
     )
     print('num para of AA: ', sum(p.numel() for p in aa.parameters()) / 1e6)
     
@@ -114,7 +115,7 @@ if __name__ == '__main__':
         transforms.ColorJitter(0.5, 0.5, 0.5, 0.15),
         # GaussianBlur([1., 1.]),
     
-        # Sharpness(Sharpness.RANGES[8]),
+        RandSharpness(),
         
         # transforms.RandomCrop(32, padding=4, padding_mode='edge'),  # edge, constant
         # transforms.RandomHorizontalFlip(),
@@ -149,7 +150,7 @@ if __name__ == '__main__':
     )
     set_seed(seed)
     
-    op = torch.optim.Adam(aa.parameters(), lr=0.001)
+    op = torch.optim.Adam(aa.parameters(), lr=0.003)
     
     max_it = len(rrc_loader)
     org_itrt, rrc_itrt1, rrc_itrt2, aug_itrt = iter(org_loader), iter(rrc_loader), iter(rrc_loader), iter(aug_loader)
@@ -161,7 +162,8 @@ if __name__ == '__main__':
         rrc_t = time.time()
 
         aug_inp, aug_tar = next(aug_itrt)
-        view1, view2 = aa(aug_inp)
+        (concated_aug_vec, aug_dim, norm_p), (view1, view2) = aa(aug_inp, normalizing=True)
+        aug_vec1, aug_vec2 = concated_aug_vec.data[:, :aug_dim], concated_aug_vec.data[:, aug_dim:]
         
         d = -((view1-view2).norm() ) / org_inp.norm()
         op.zero_grad()
@@ -169,9 +171,12 @@ if __name__ == '__main__':
         orig_norm = torch.nn.utils.clip_grad_norm_(aa.parameters(), 10)
         print(f'loss={d.item():.3g},  orig_norm={orig_norm:.3g}')
         op.step()
-        
+        aug_norm1, aug_norm2 = aug_vec1.norm(norm_p, dim=1).mean().item(), aug_vec2.norm(norm_p, dim=1).mean().item()
+        aug_grad1, aug_grad2 = concated_aug_vec.grad[:, :aug_dim], concated_aug_vec.grad[:, aug_dim:]
+
+
         aug_t = time.time()
-        print(f'it[{it}/{max_it}] org+rrc time: {rrc_t - stt_t:.3f}s, aug time: {aug_t - rrc_t:.3f}s')
+        print(f'it[{it}/{max_it}] nm1={aug_vec1.norm(dim=1).mean().item():.3g}, nm2={aug_vec2.norm(dim=1).mean().item():.3g}    org+rrc time: {rrc_t - stt_t:.3f}s, aug time: {aug_t - rrc_t:.3f}s')
         
         dc = (hsv_to_rgb(rgb_to_hsv((denormalize(view1.data)))) - (denormalize(view1.data)))
         print(f'it[{it}/{max_it}] dc.mean=', f'{dc.abs().sum() / dc.numel():.5f}', 'dc.max=', dc.abs().max(), f'dc>0.1={(dc.abs() > 0.1).sum().item() / dc.numel() * 100:.2f}%')

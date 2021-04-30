@@ -107,7 +107,9 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
     
     if cfg.seed_base is None:
         lg.info(f'=> [main]: args.seed_base is None, no set_seed called')
+        # noinspection PyUnresolvedReferences
         torch.backends.cudnn.benchmark = True
+        # noinspection PyUnresolvedReferences
         torch.backends.cudnn.deterministic = False
     else:
         seeds = torch.zeros(dist.world_size).float()
@@ -131,6 +133,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
         pr=0, rem=0, beg_t=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     )
 
+    auto_aug = None
     if on_imagenet:
         trans_ls = [
             transforms.RandomResizedCrop(224, scale=cfg.aug.rrc_range, ratio=cfg.aug.rrc_ratio),
@@ -148,7 +151,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
         if cfg.aug.no_flip:
             trans_ls.pop(-3)
         
-        if cfg.aug.test_rand_aug:
+        if cfg.aug.auto_aug:
             trans_ls = [
                 transforms.Resize((224, 224)),
                 transforms.RandomHorizontalFlip(),
@@ -156,12 +159,11 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
             ]
             auto_aug = Augmenter(
                 ch_means=cfg.data.meta.mean_std[0], ch_stds=cfg.data.meta.mean_std[1],
+                adversarial=cfg.aug.adversarial,
                 expansion=cfg.aug.expansion, act_name=cfg.aug.act_name,
                 padding_mode=cfg.aug.padding_mode,
                 target_norm=cfg.aug.target_norm, soft_target=cfg.aug.soft_target,
             ).cuda()
-        else:
-            auto_aug = None
         
         pret_transform = transforms.Compose(trans_ls)
         lg.info(f'=> [pret transform] (auto_aug: {auto_aug is not None}): {pret_transform}')
@@ -211,6 +213,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
     loader_kw = dict(num_workers=cfg.data.num_workers, pin_memory=cfg.data.pin_mem)
     dist_sp_kw = dict(num_replicas=dist.world_size, rank=dist.rank, shuffle=True)
 
+    pret_iters = pret_ld = pret_sp = eval_iters = eval_ld = eval_sp = test_iters = test_ld = knn_iters = knn_ld = None
     for rk in range(dist.world_size):
         if rk == dist.rank:
             master_echo(True, f'{time_str()}[rk{dist.rank:2d}] construct dataloaders... ', tail='\\c')
@@ -278,7 +281,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
         pret_res_str = pretrain(
             pret_knn_args, auto_aug, cfg.data.meta.num_classes, ExpMeta(
                 cfg.torch_ddp, cfg.moco.arch, cfg.job.exp_root, os.path.split(cfg.job.exp_root)[-1], cfg.job.descs, cfg.log_freq, cfg.resume_ckpt,
-                cfg.pretrain.epochs, float(cfg.pretrain.lr), float(cfg.pretrain.wd), cfg.pretrain.nowd, cfg.pretrain.coslr, cfg.pretrain.schedule, cfg.pretrain.warmup, cfg.pretrain.grad_clip
+                cfg.pretrain.epochs, cfg.pretrain.lr, cfg.pretrain.auglr, cfg.pretrain.wd, cfg.pretrain.augwd, cfg.pretrain.nowd, cfg.pretrain.coslr, cfg.pretrain.schedule, cfg.pretrain.warmup, cfg.pretrain.grad_clip, cfg.pretrain.aug_grad_clip
             ),
             lg, g_tb_lg, l_tb_lg, dist, pretrain_model, pret_iters, pret_ld, pret_sp, test_iters, test_ld
         )
@@ -304,7 +307,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
     linear_eval(
         pret_res_str, cfg.data.meta.num_classes, ExpMeta(
             cfg.torch_ddp, cfg.moco.arch, cfg.job.exp_root, os.path.split(cfg.job.exp_root)[-1], cfg.job.descs, cfg.log_freq, cfg.eval_resume_ckpt,
-            cfg.lnr_eval.eval_epochs, float(cfg.lnr_eval.eval_lr), float(cfg.lnr_eval.eval_wd), cfg.lnr_eval.eval_nowd, cfg.lnr_eval.eval_coslr, cfg.lnr_eval.eval_schedule, cfg.lnr_eval.eval_warmup, cfg.lnr_eval.eval_grad_clip
+            cfg.lnr_eval.eval_epochs, cfg.lnr_eval.eval_lr, 0., cfg.lnr_eval.eval_wd, 0., cfg.lnr_eval.eval_nowd, cfg.lnr_eval.eval_coslr, cfg.lnr_eval.eval_schedule, cfg.lnr_eval.eval_warmup, cfg.lnr_eval.eval_grad_clip, None
         ),
         lg, g_tb_lg, l_tb_lg, dist, lnr_eval_encoder_q, eval_iters, eval_ld, eval_sp, test_iters, test_ld
     )
@@ -325,12 +328,15 @@ class ExpMeta(NamedTuple):
     # hyperparameters
     epochs: int
     lr: float
+    auglr: float
     wd: float
+    augwd: float
     nowd: bool
     coslr: bool
     schedule: List[int]
     warmup: bool
     grad_clip: Optional[float]
+    aug_grad_clip: Optional[float]
 
 
 def pretrain(
@@ -349,7 +355,8 @@ def pretrain(
     params = filter_params(pret_model) if meta.nowd else pret_model.parameters()
     params = list(filter(lambda p: p.requires_grad, params))
     optimizer = torch.optim.SGD(params, lr=meta.lr, weight_decay=meta.wd, momentum=0.9)
-    lg.info(f'=> [pretrain]: create op: model_cls={pret_model.__class__.__name__}, len(params)={len(params)}, max_lr={meta.lr}, wd={meta.wd}, nowd={meta.nowd}, coslr={meta.coslr}, warm up={meta.warmup}')
+    aug_optimizer = torch.optim.AdamW(auto_aug.parameters(), lr=meta.auglr, weight_decay=meta.augwd)
+    lg.info(f'=> [pretrain]: create op: model_cls={pret_model.__class__.__name__}, len(params)={len(params)}, max_lr={meta.lr}, max_alr={meta.auglr}, wd={meta.wd}, nowd={meta.nowd}, coslr={meta.coslr}, warm up={meta.warmup}')
 
     if not meta.coslr and meta.schedule is not None:
         assert len(meta.schedule) > 0
@@ -378,6 +385,7 @@ def pretrain(
         
         lg.info(f'=> [pretrain]: load optimizer.state from {meta.resume_ckpt}')
         optimizer.load_state_dict(pret_resume['optimizer'])
+        aug_optimizer.load_state_dict(pret_resume['aug_optimizer'])
     
     time.sleep(1 + 2 * dist.rank)
     epoch_speed = AverageMeter(3)
@@ -398,7 +406,7 @@ def pretrain(
             master_echo(dist.is_master(), f' @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s,      pre_be={best_test_acc1:5.2f}', '36')
         
         start_t = time.time()
-        tr_loss: float = train_one_ep(True, 'pretrain', lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, pret_iters, pret_ld, auto_aug, pret_model, params, optimizer, avgs)
+        tr_loss: float = train_one_ep(True, 'pretrain', lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, pret_iters, pret_ld, auto_aug, pret_model, params, optimizer, aug_optimizer, avgs)
         tr_loss_mov_avg = tr_loss if tr_loss_mov_avg == 0 else tr_loss_mov_avg * 0.99 + tr_loss * 0.01
         train_t = time.time()
         
@@ -413,7 +421,7 @@ def pretrain(
         topk_acc1s.push_q(test_acc1)
         best_updated = test_acc1 > best_test_acc1
         state_dict = {
-            'arch': meta.arch, 'epoch': epoch, 'pret_model': pret_model.state_dict(), 'optimizer': optimizer.state_dict(),
+            'arch': meta.arch, 'epoch': epoch, 'pret_model': pret_model.state_dict(), 'optimizer': optimizer.state_dict(), 'aug_optimizer': aug_optimizer.state_dict(),
             'topk_acc1s': list(topk_acc1s), 'best_test_acc1': best_test_acc1, 'tr_loss_mov_avg': tr_loss_mov_avg,
         }
         if best_updated:
@@ -430,7 +438,7 @@ def pretrain(
         )
         if dist.is_master():
             upd_seatable_file(
-                meta.exp_root, dist.is_master(), pr=min((epoch + 1) / meta.epochs, 0.999), lr=f'{meta.lr:.1g}', knn_acc=-15750 if np.isnan(test_acc1) else test_acc1,
+                meta.exp_root, dist.is_master(), pr=min((epoch + 1) / meta.epochs, 0.999), lr=f'{meta.lr:.1g}', alr=f'{meta.auglr:.1g}', knn_acc=-15750 if np.isnan(test_acc1) else test_acc1,
                 rem=remain_time.seconds, end_t=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + remain_time.seconds)),
             )
         
@@ -561,7 +569,7 @@ def linear_eval(
             master_echo(dist.is_master(), f' @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s,      eva_be={best_test_acc1:5.2f}', '36')
         
         start_t = time.time()
-        tr_loss: float = train_one_ep(False, 'lnr_eval', lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, eval_iters, eval_ld, None, encoder_q, params, optimizer, avgs)
+        tr_loss: float = train_one_ep(False, 'lnr_eval', lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, eval_iters, eval_ld, None, encoder_q, params, optimizer, None, avgs)
         tr_loss_mov_avg = tr_loss if tr_loss_mov_avg == 0 else tr_loss_mov_avg * 0.99 + tr_loss * 0.01
         train_t = time.time()
         
@@ -655,9 +663,12 @@ def linear_eval(
 
 
 # one epoch
-def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_iters, tr_ld, auto_aug, dist_or_local_model, params, op, avgs):
+def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta, epoch, ep_str, tr_iters, tr_ld, auto_aug, dist_or_local_model, params, op, aug_op, avgs):
+    using_auto_aug = auto_aug is not None
     if is_pretrain:
         dist_or_local_model.train()
+        if using_auto_aug:
+            auto_aug.train()
     else:
         dist_or_local_model.eval()    # todo: 全连接也弄成eval？确定吗？应该只是说提feature层应该不能更新吧，FC应该可以更新的吧！看下moco源代码！
     
@@ -678,8 +689,8 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
         data_t = time.time()
         bs = data1.shape[0]
         data1, data2 = data1.cuda(non_blocking=True), data2.cuda(non_blocking=True)
-        if auto_aug is not None:
-            data1, data2 = auto_aug(data1, normalizing=True)
+        if using_auto_aug:
+            (concated_aug_vec, aug_dim, norm_p), (data1, data2) = auto_aug(data1, normalizing=True)
         cuda_t = time.time()
         
         assert torch.isnan(data1).sum().item() == 0
@@ -700,8 +711,20 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
         forw_t = time.time()
         
         op.zero_grad()
+        if using_auto_aug:
+            aug_op.zero_grad()
         loss.backward()
         back_t = time.time()
+        
+        if using_auto_aug:
+            sche_aug_lr = adjust_learning_rate(aug_op, cur_iter, max_iter, meta.auglr, meta)
+            if meta.aug_grad_clip is not None:
+                orig_aug_norm = torch.nn.utils.clip_grad_norm_(auto_aug.parameters(), meta.aug_grad_clip)
+                actual_aug_lr = sche_aug_lr * min(1, meta.aug_grad_clip / orig_aug_norm)
+            else:
+                orig_aug_norm = meta.aug_grad_clip
+                actual_aug_lr = sche_aug_lr
+        
         sche_lr = adjust_learning_rate(op, cur_iter, max_iter, meta.lr, meta)
         clipping = meta.grad_clip is not None and cur_iter < tr_iters * 10
         if clipping:
@@ -710,11 +733,15 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
         else:
             orig_norm = meta.grad_clip
             actual_lr = sche_lr
+            
         clip_t = time.time()
         
         op.step()
+        if using_auto_aug:
+            auto_aug.inverse_grad()
+            aug_op.step()
         step_t = time.time()
-        
+
         if cur_iter < 10 or cur_iter % log_iters == 0 or (actual_lr < sche_lr - 1e-6 and random.randrange(8) == 0):
             g_tb_lg.add_scalars(f'{prefix}/lr', {'scheduled': sche_lr}, cur_iter)
             if clipping:
@@ -723,6 +750,41 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
         
         if tr_loss_avg.last > 12 or not is_pretrain and epoch < 2:
             l_tb_lg.add_scalar(f'{prefix}/train_loss', tr_loss_avg.last, cur_iter)
+        
+        if using_auto_aug:
+            if cur_iter < 50 or cur_iter % log_iters == 0 or (actual_aug_lr < sche_aug_lr - 1e-6 and random.randrange(8) == 0):
+                g_tb_lg.add_scalars(f'{prefix}/aug_lr', {'scheduled': sche_aug_lr}, cur_iter)
+            g_tb_lg.add_scalar(f'{prefix}/orig_aug_norm', orig_aug_norm, cur_iter)
+            g_tb_lg.add_scalars(f'{prefix}/aug_lr', {'actual': actual_aug_lr}, cur_iter)
+
+            k = max(round(aug_vec1.shape[0] * 0.3), 1)
+            aug_vec1, aug_vec2 = concated_aug_vec.data[:, :aug_dim], concated_aug_vec.data[:, aug_dim:]
+            aug_norm1, aug_norm2 = aug_vec1.norm(norm_p, dim=1).topk(k)[0].mean().item(), aug_vec2.norm(norm_p, dim=1).topk(k)[0].mean().item()
+            aug_grad1, aug_grad2 = concated_aug_vec.grad[:, :aug_dim], concated_aug_vec.grad[:, aug_dim:]
+            
+            g_tb_lg.add_scalars(f'aug_vec/norm', {'o1': aug_norm1, 'o2': aug_norm2}, cur_iter)
+            col_h1, col_s1, col_v1, blur1, tr_x1, tr_y1, area1, ratio1 = aug_vec1.unbind(1)
+            col_h2, col_s2, col_v2, blur2, tr_x2, tr_y2, area2, ratio2 = aug_vec2.unbind(1)
+            g_tb_lg.add_scalars(f'aug_vec/col_h', {'o1': col_h1.abs().topk(k)[0].mean().item(), 'o2': col_h2.abs().topk(k)[0].mean().item()}, cur_iter)
+            g_tb_lg.add_scalars(f'aug_vec/col_s', {'o1': col_s1.abs().topk(k)[0].mean().item(), 'o2': col_s2.abs().topk(k)[0].mean().item()}, cur_iter)
+            g_tb_lg.add_scalars(f'aug_vec/col_v', {'o1': col_v1.abs().topk(k)[0].mean().item(), 'o2': col_v2.abs().topk(k)[0].mean().item()}, cur_iter)
+            g_tb_lg.add_scalars(f'aug_vec/blur', {'o1': blur1.abs().topk(k)[0].mean().item(), 'o2': blur2.abs().topk(k)[0].mean().item()}, cur_iter)
+            g_tb_lg.add_scalars(f'aug_vec/tr_x', {'o1': tr_x1.abs().topk(k)[0].mean().item(), 'o2': tr_x2.abs().topk(k)[0].mean().item()}, cur_iter)
+            g_tb_lg.add_scalars(f'aug_vec/tr_y', {'o1': tr_y1.abs().topk(k)[0].mean().item(), 'o2': tr_y2.abs().topk(k)[0].mean().item()}, cur_iter)
+            g_tb_lg.add_scalars(f'aug_vec/area', {'o1': area1.abs().topk(k)[0].mean().item(), 'o2': area2.abs().topk(k)[0].mean().item()}, cur_iter)
+            g_tb_lg.add_scalars(f'aug_vec/ratio', {'o1': ratio1.abs().topk(k)[0].mean().item(), 'o2': ratio2.abs().topk(k)[0].mean().item()}, cur_iter)
+
+            col_h1, col_s1, col_v1, blur1, tr_x1, tr_y1, area1, ratio1 = aug_grad1.unbind(1)
+            col_h2, col_s2, col_v2, blur2, tr_x2, tr_y2, area2, ratio2 = aug_grad2.unbind(1)
+            g_tb_lg.add_scalars(f'aug_grad/grad_col_h', {'o1': col_h1.abs().topk(k)[0].mean().item(), 'o2': col_h2.abs().topk(k)[0].mean().item()}, cur_iter)
+            g_tb_lg.add_scalars(f'aug_grad/grad_col_s', {'o1': col_s1.abs().topk(k)[0].mean().item(), 'o2': col_s2.abs().topk(k)[0].mean().item()}, cur_iter)
+            g_tb_lg.add_scalars(f'aug_grad/grad_col_v', {'o1': col_v1.abs().topk(k)[0].mean().item(), 'o2': col_v2.abs().topk(k)[0].mean().item()}, cur_iter)
+            g_tb_lg.add_scalars(f'aug_grad/grad_blur', {'o1': blur1.abs().topk(k)[0].mean().item(), 'o2': blur2.abs().topk(k)[0].mean().item()}, cur_iter)
+            g_tb_lg.add_scalars(f'aug_grad/grad_tr_x', {'o1': tr_x1.abs().topk(k)[0].mean().item(), 'o2': tr_x2.abs().topk(k)[0].mean().item()}, cur_iter)
+            g_tb_lg.add_scalars(f'aug_grad/grad_tr_y', {'o1': tr_y1.abs().topk(k)[0].mean().item(), 'o2': tr_y2.abs().topk(k)[0].mean().item()}, cur_iter)
+            g_tb_lg.add_scalars(f'aug_grad/grad_area', {'o1': area1.abs().topk(k)[0].mean().item(), 'o2': area2.abs().topk(k)[0].mean().item()}, cur_iter)
+            g_tb_lg.add_scalars(f'aug_grad/grad_ratio', {'o1': ratio1.abs().topk(k)[0].mean().item(), 'o2': ratio2.abs().topk(k)[0].mean().item()}, cur_iter)
+        
         if cur_iter % log_iters == 0:
             # l_tb_lg.add_scalars(f'{prefix}/tr_loss', {'it': loss_avg.avg}, cur_iter)
             l_tb_lg.add_scalar(f'{prefix}/train_loss', tr_loss_avg.last, cur_iter)

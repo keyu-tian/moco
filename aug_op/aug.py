@@ -54,21 +54,24 @@ class FCBlock(nn.Module):
         return feature
 
 
-class AugGenerator(nn.Module):
-    def __init__(self, expansion, aug_dim, target_norm, soft_target, activate):
+class AugVecGenerator(nn.Module):
+    def __init__(self, expansion, aug_dim, target_norm, soft_target, activate, norm_p):
         assert 0 <= soft_target <= 1
-        super(AugGenerator, self).__init__()
+        super(AugVecGenerator, self).__init__()
+        self.aug_dim = aug_dim
         self.target_norm, self.soft_target = target_norm, soft_target
+        self.norm_p = norm_p
         
         output_dim = aug_dim * 2
-        dims = [2, 1, 1, 1, 1]
-        output_dims = [d * expansion for d in dims]
-        output_dims.append((output_dims[-1] + output_dim * 2) // 2)
-        output_dims.append(output_dim * 2)
-        output_dims.append(output_dim)
+        dims = [d * expansion for d in [2, 1, 1, 1]]
+        dims.append((dims[-1] + output_dim * 2) // 2)
+        dims.append((dims[-1] + output_dim * 2) // 2)
+        dims.append(output_dim * 2)
+        dims.append(output_dim * 2)
+        dims.append(output_dim)
         
-        input_dims = deepcopy(output_dims[:-1])
-        output_dims = deepcopy(output_dims[1:])
+        input_dims = deepcopy(dims[:-1])
+        output_dims = deepcopy(dims[1:])
         noise_dims = [0] * len(input_dims)
         noise_dims[1:5] = input_dims[1:5]
         input_dims = [i + n for i, n in zip(input_dims, noise_dims)]
@@ -89,47 +92,69 @@ class AugGenerator(nn.Module):
         for i, module in enumerate(self.fcs):
             name = module.__class__.__name__
             if 'Linear' in name:
-                std = 0.005 if i + 1 == len(self.layers) else 0.005
+                std = 0.01 if i + 1 == len(self.layers) else 0.01
                 module.weight.data.normal_(mean=0.0, std=std)
                 if hasattr(module, 'bias') and module.bias is not None:
                     module.bias.data.zero_()
     
-    def forward(self, im_batch: Tensor):
+    def forward(self, im_batch: Tensor) -> Tuple[Tuple[Tensor, int, int], Tuple[Tensor, Tensor]]:
         B = im_batch.shape[0]
         #   h   s   v      blur   tr_x, tr_y, area, ratio
-        # concated_aug_vector = torch.tensor([[
+        # concated_aug_vec = torch.tensor([[
         #     0., 0., 0.,     0.,     -0.5, 0., 0.5, -0.5,             0., 0., 0.,     0.,     0., 0., 0., 0.
         # ]]).repeat(B, 1)
-        # return concated_aug_vector
+        # return concated_aug_vec
 
         feature = uniform_noise(B, self.input0_dim).to(im_batch.device)
         for noisy_fc in self.fcs:
-            noisy_fc: FCBlock
             feature = noisy_fc(feature)
         
-        concated_aug_vector = feature
-        norm = concated_aug_vector.norm(2, dim=1, keepdim=True)
-
-        concated_aug_vector = concated_aug_vector / norm * self.target_norm
-        if self.soft_target > 1e-5:
-            concated_aug_vector *= 1-self.soft_target + self.soft_target * norm.sigmoid()
+        concated_aug_vec = feature  # (B, 2*self.aug_dim)
+        concated_aug_vec.retain_grad()  # todo: debug看的
         
-        return concated_aug_vector
+        # mask or i_mask: (B, self.aug_dim)
+        mask = torch.bernoulli(torch.empty(B, 1), 0.5).to(im_batch.device).expand(B, self.aug_dim)
+        i_mask = torch.ones_like(mask) - mask
+        
+        # m1 or m2: (B, 2*self.aug_dim)
+        m1, m2 = torch.cat((mask, i_mask), dim=1), torch.cat((i_mask, mask), dim=1)
+        
+        # vec1 or vec2: (B, self.aug_dim)
+        vec1, vec2 = concated_aug_vec * m1, concated_aug_vec * m2
+        vec1 = vec1[:, :self.aug_dim] + vec1[:, self.aug_dim:]
+        vec2 = vec2[:, :self.aug_dim] + vec2[:, self.aug_dim:]
+        
+        vecs = [vec1, vec2]
+        
+        for i in [0, 1]:
+            norm = vecs[i].norm(p=self.norm_p, dim=1, keepdim=True)
+            unit_vec = vecs[i] / norm
+            if self.soft_target > 1e-5:
+                range01 = norm.sigmoid()
+                vecs[i] = unit_vec * (self.target_norm-self.soft_target + range01*self.soft_target)
+            else:
+                vecs[i] = unit_vec * self.target_norm
+        
+        return (
+            (concated_aug_vec, self.aug_dim, self.norm_p),
+            (vecs[0], vecs[1])
+        )
 
 
 class Augmenter(nn.Module):
-    grids_and_homo = dict()
-    eye3, I_filter, d_filter = ..., ..., ...
-    dev = ...
     padding_mode = ...
+    dev = ...
+    eye3, I_filter, d_filter = ..., ..., ...
+    grids_and_homo = dict()
     
     def __init__(
             self, ch_means: Tuple, ch_stds: Tuple,
+            adversarial,
             expansion,
             act_name,
-            padding_mode,           # 'border', 'reflection' or 'zeros'
+            padding_mode,           # 'border', 'zeros' or 'reflection'
             rand_grayscale_p=0.2,
-            target_norm=1., soft_target=0.2,
+            norm_p=2, target_norm=1., soft_target=0.2,
             searching: List[str] = None,
     ):
         super(Augmenter, self).__init__()
@@ -142,6 +167,7 @@ class Augmenter(nn.Module):
         
         self.MEAN = torch.tensor(ch_means).float().view(1, 3, 1, 1).contiguous().to(Augmenter.dev)
         self.STD = torch.tensor(ch_stds).float().view(1, 3, 1, 1).contiguous().to(Augmenter.dev)
+        self.adversarial = adversarial
         
         ls = [
             (Augmenter.color_aug, 3),
@@ -154,7 +180,6 @@ class Augmenter(nn.Module):
         pref_sum = list(itertools.accumulate(self.aug_param_lens))
         self.begs, self.ends = tuple([0] + pref_sum[:-1]), tuple(pref_sum)
 
-        self.aug_dim = sum(self.aug_param_lens)
         act = {
             'tanh': torch.tanh,
             'sigmod': torch.sigmoid,
@@ -162,10 +187,10 @@ class Augmenter(nn.Module):
             'relu6': F.relu6,
             'swish': swish,
         }[act_name]
-        self.generator = AugGenerator(
+        self.generator = AugVecGenerator(
             expansion=expansion,
-            aug_dim=self.aug_dim,
-            target_norm=target_norm, soft_target=soft_target,
+            aug_dim=sum(self.aug_param_lens),
+            norm_p=norm_p, target_norm=target_norm, soft_target=soft_target,
             activate=act
         )
         Augmenter.eye3 = torch.eye(3).reshape(1, 3, 3).to(Augmenter.dev)
@@ -182,13 +207,12 @@ class Augmenter(nn.Module):
         
         self.rand_grayscale = rand_grayscale_p is not None and rand_grayscale_p > 1e-4
         self.rand_grayscale_p = rand_grayscale_p
-    
-    def split_aug_params(self, aug_params):
-        two_augs = []
-        for p in (aug_params[:, :self.aug_dim], aug_params[:, self.aug_dim:]):
-            params = [p[:, beg:end] for beg, end in zip(self.begs, self.ends)]
-            two_augs.append(params)
-        return two_augs
+
+    def inverse_grad(self):
+        if self.adversarial:
+            for p in self.parameters():
+                if p.requires_grad and p.grad is not None:
+                    p.grad.neg_()
 
     def normalize(self, img):
         return (img - self.MEAN) / self.STD
@@ -198,12 +222,11 @@ class Augmenter(nn.Module):
     
     def forward(self, im_batch: Tensor, normalizing=True):
         im_batch = torch.clamp(im_batch, min=0., max=1.)
-        
-        oup: Tensor = self.generator(im_batch)  # todo: 要把图片输入进去是不是会导致网络很大？要输的话是不是输6通道比较好？如果直接输入一个一维gaussian呢？
-        two_aug_vectors = (oup[:, :self.aug_dim], oup[:, self.aug_dim:])
+
+        log_data, pair_shuffled_two_aug_vectors = self.generator(im_batch)  # todo: 要把图片输入进去是不是会导致网络很大？要输的话是不是输6通道比较好？如果直接输入一个一维gaussian呢？
         
         two_views = []
-        for aug_vector in two_aug_vectors:
+        for aug_vector in pair_shuffled_two_aug_vectors:
             aug_imgs = im_batch
             for beg, end, func in zip(self.begs, self.ends, self.aug_funcs):
                 param = aug_vector[:, beg:end]
@@ -217,7 +240,7 @@ class Augmenter(nn.Module):
             
             two_views.append(aug_imgs)
         
-        return two_views[0], two_views[1]
+        return log_data, two_views
 
     @staticmethod
     def color_aug(color_ps: Tensor, rgb_imgs: Tensor):
@@ -233,7 +256,9 @@ class Augmenter(nn.Module):
         
         d = torch.cat((d_h, d_s, d_v), dim=1)   # (B, 3, 1, 1)
 
-        hsv_imgs = torch.clamp(rgb_to_hsv(rgb_imgs) + d, min=0., max=1.)
+        hsv_imgs = rgb_to_hsv(rgb_imgs) + d
+        hsv_imgs[:, 0] %= 1
+        hsv_imgs = torch.clamp(hsv_imgs, min=0., max=1.)
         aug_imgs = torch.clamp(hsv_to_rgb(hsv_imgs), min=0., max=1.)
         
         return aug_imgs
@@ -264,30 +289,31 @@ class Augmenter(nn.Module):
         B, C, H, W = rgb_imgs.shape
         tr_x, tr_y, area, ratio = crop_ps.unbind(dim=1) # (B, )
 
-        tr_x: Tensor = -0.7 * tr_x                        # -1: -0.7    0: 0      1: 0.7
-        tr_y: Tensor = -0.7 * tr_y                        # -1: -0.7    0: 0      1: 0.7
-        area: Tensor = 0.8 - 0.72 * area.abs().pow(0.5)   # -1: 0.08    0: 0.8    1: 0.08
+        lim = 0.75
+        tr_x: Tensor = -lim * tr_x                              # -1: 0.8     0: 0      1: -0.8
+        tr_y: Tensor = -lim * tr_y                              # -1: 0.8     0: 0      1: -0.8
+        area: Tensor = lim - (lim * 0.9) * area.abs().sqrt()    # -1: 0.08    0: 0.8    1: 0.08
         
         ratio: Tensor = ratio * np.log(3/2)
-        ratio = ratio.exp()                     # -1: a/b     0: 1.0    1: b/a
+        ratio = ratio.exp()                        # -1: 2/3     0: 1.0    1: 3/2
         
         sc_x: Tensor = (area / ratio).sqrt()
         sc_y: Tensor = sc_x * ratio
 
-        M_scale = Augmenter.eye3.repeat(B, 1, 1)   # (B, 3, 3)
-        M_scale[:, 0, 0] = sc_x
-        M_scale[:, 1, 1] = sc_y
+        inv_M_scale = Augmenter.eye3.repeat(B, 1, 1)   # (B, 3, 3)
+        inv_M_scale[:, 0, 0] = sc_x
+        inv_M_scale[:, 1, 1] = sc_y
 
-        M_trans = Augmenter.eye3.repeat(B, 1, 1)   # (B, 3, 3)
-        M_trans[:, 0, 2] = tr_x
-        M_trans[:, 1, 2] = tr_y
+        inv_M_trans = Augmenter.eye3.repeat(B, 1, 1)   # (B, 3, 3)
+        inv_M_trans[:, 0, 2] = tr_x
+        inv_M_trans[:, 1, 2] = tr_y
         # todo: 平移出去越界怎么办，要把area控制住吗？那如果clip的硬控制住，还怎么保证还能传梯度？还是说一旦越界就让他们都收敛点？
         # todo: scale出去越界怎么办？因为当area接近1而ratio很悬殊的时候，长边就会伸出去
 
-        trans_matrices = torch.matmul(M_trans, M_scale) # scale first, then translate
+        inverse_trans_matrices = torch.matmul(inv_M_scale, inv_M_trans) # scale first, then translate:  Tx = Tr @ Sc @ x  ->  T'x = Sc' @ Tr' @ x
         
         homo = Augmenter._get_homo(H, W)
-        rgb_imgs = Augmenter._apply_transform_to_batch(rgb_imgs, trans_matrices, homo, Augmenter.padding_mode)
+        rgb_imgs = Augmenter._apply_transform_to_batch(rgb_imgs, inverse_trans_matrices, homo, Augmenter.padding_mode)
         return torch.clamp(rgb_imgs, min=0., max=1.)
 
     @staticmethod
@@ -307,17 +333,17 @@ class Augmenter(nn.Module):
             return homo_coords
 
     @staticmethod   # todo 不debug的时候记得用 reflection 而不是 zeros
-    def _apply_transform_to_batch(img_batch: Tensor, trans_batch: Tensor, homo_coords: Tensor, padding_mode='border', align_corners=False):   # todo: 'border', 'reflection' or 'zeros'
+    def _apply_transform_to_batch(img_batch: Tensor, inverse_trans_batch: Tensor, homo_coords: Tensor, padding_mode='border', align_corners=False):   # todo: 'border', 'reflection' or 'zeros'
         """
         :param img_batch: (B, C, H, W)
-        :param trans_batch: (B, 3, 3)
+        :param inverse_trans_batch: (B, 3, 3)
         :param homo_coords: (1, 3, H*W)
         :param padding_mode:
         :param align_corners:
         :return: (B, C, H, W)
         """
         B, _, H, W = img_batch.shape
-        t_homo_coords = trans_batch.matmul(homo_coords)   # (B, 3, 3) @ (B (1=broadcast=>B), 3, H*W) => (B, 3, H*W)
+        t_homo_coords = inverse_trans_batch.matmul(homo_coords)   # (B, 3, 3) @ (B (1=broadcast=>B), 3, H*W) => (B, 3, H*W)
     
         t_homo_coords = t_homo_coords.view(B, 3, H, W).permute(0, 2, 3, 1)  # (B, 3, H*W) => (B, 3, H, W) => (B, H, W, 3)
         w = t_homo_coords[:, :, :, -1:]
@@ -340,8 +366,9 @@ class Augmenter(nn.Module):
         
 
 def main():
-    Augmenter(
+    aa = Augmenter(
         ch_means=(0.4914, 0.4822, 0.4465), ch_stds=(0.2023, 0.1994, 0.2010),
+        adversarial=True,
         searching=[
             'color_aug',
             'blur_aug',
@@ -353,7 +380,11 @@ def main():
         rand_grayscale_p=0,
         target_norm=1.,
         soft_target=False,
-    )(torch.rand(3, 4, 5, 6))
+    )
+    aa(torch.rand(3, 4, 5, 6))
+    
+    for name, p in aa.named_parameters():
+        print(name, p.shape)
 
 
 if __name__ == '__main__':

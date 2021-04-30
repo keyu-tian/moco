@@ -27,14 +27,14 @@ class AugCfg(NamedTuple):
     blur_args: list = [.1, 2.]
     gblur: bool = True
     
-    test_rand_aug: bool = False
+    auto_aug: bool = False
+    adversarial: bool = True
     expansion: int = 256
     act_name: str = 'tanh'    # 'tanh', 'swish'
     padding_mode: str = 'border'    # 'border', 'reflection' or 'zeros'
-    target_norm: float = 1.35
+    target_norm: float = 1.1
     soft_target: float = 0.2
     
-
 
 class DataCfg(NamedTuple):
     dataset: str = 'cifar10'
@@ -63,12 +63,15 @@ class PretrainCfg(NamedTuple):
     batch_size: int = 512  # cifar: 512, imn: 256
     knn_ld_or_test_ld_batch_size: int = 512
     lr: float = 0.03  # cifar: 0.06 for b512, imn: 0.03 for b256
+    auglr: float = 0.001
     coslr: bool = True
     schedule: List[int] = [120, 160]  # step decay
     warmup: bool = True
-    wd: float = 0.
+    wd: float = 1e-4
+    augwd: float = 1e-5
     nowd: bool = False
     grad_clip: Optional[float] = 5.
+    aug_grad_clip: Optional[float] = 2.
 
 
 class LinearEvalCfg(NamedTuple):
