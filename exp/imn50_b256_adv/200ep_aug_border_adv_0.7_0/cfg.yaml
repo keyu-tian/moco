@@ -19,8 +19,8 @@ aug:
     expansion: 256
     act_name: tanh    # 'tanh', 'swish'
     padding_mode: border    # 'border', 'reflection' or 'zeros'
-    target_norm: 1
-    soft_target: 0.2
+    target_norm: 0.7
+    soft_target: 0
 
 data:
     dataset: imagenet50    # cifar10, cifar100, imagenet, imagenetX (5<X<895, for sub imagenet)

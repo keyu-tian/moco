@@ -19,7 +19,7 @@ aug:
     expansion: 256
     act_name: tanh    # 'tanh', 'swish'
     padding_mode: border    # 'border', 'reflection' or 'zeros'
-    target_norm: 0.7
+    target_norm: 0.8
     soft_target: 0.2
 
 data:
