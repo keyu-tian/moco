@@ -686,7 +686,7 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
         data1, data2 = data1.cuda(non_blocking=True), data2.cuda(non_blocking=True)
         if isinstance(auto_aug, Augmenter):
             data1, data2 = auto_aug(data1, normalizing=True)
-        elif cur_iter % 8 == 0:
+        elif cur_iter % 20 == 0:
             auto_aug(cur_iter)
             
         cuda_t = time.time()
