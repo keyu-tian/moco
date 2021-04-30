@@ -16,7 +16,7 @@ aug:
 
     test_rand_aug: True
     expansion: 256
-    act_name: tanh    # 'tanh', 'swish'
+    act_name: swish    # 'tanh', 'swish'
     padding_mode: border    # 'border', 'reflection' or 'zeros'
     target_norm: 1.55
     soft_target: 0.2

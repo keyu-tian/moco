@@ -356,7 +356,7 @@ def pretrain(
     params = list(filter(lambda p: p.requires_grad, params))
     optimizer = torch.optim.SGD(params, lr=meta.lr, weight_decay=meta.wd, momentum=0.9)
     if auto_aug is not None:
-        aug_optimizer = torch.optim.AdamW(auto_aug.parameters(), lr=meta.auglr, weight_decay=meta.augwd)
+        aug_optimizer = torch.optim.SGD(auto_aug.parameters(), lr=meta.auglr, weight_decay=meta.augwd)
     else:
         aug_optimizer = None
     lg.info(f'=> [pretrain]: create op: model_cls={pret_model.__class__.__name__}, len(params)={len(params)}, max_lr={meta.lr}, max_alr={meta.auglr}, wd={meta.wd}, nowd={meta.nowd}, coslr={meta.coslr}, warm up={meta.warmup}')
@@ -787,14 +787,14 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
     
                 col_h1, col_s1, col_v1, blur1, tr_x1, tr_y1, area1, ratio1 = aug_grad1.unbind(1)
                 col_h2, col_s2, col_v2, blur2, tr_x2, tr_y2, area2, ratio2 = aug_grad2.unbind(1)
-                g_tb_lg.add_scalars(f'aug_grad/grad_col_h', {'o1': col_h1.abs().topk(k)[0].mean().item(), 'o2': col_h2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_grad/grad_col_s', {'o1': col_s1.abs().topk(k)[0].mean().item(), 'o2': col_s2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_grad/grad_col_v', {'o1': col_v1.abs().topk(k)[0].mean().item(), 'o2': col_v2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_grad/grad_blur', {'o1': blur1.abs().topk(k)[0].mean().item(), 'o2': blur2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_grad/grad_tr_x', {'o1': tr_x1.abs().topk(k)[0].mean().item(), 'o2': tr_x2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_grad/grad_tr_y', {'o1': tr_y1.abs().topk(k)[0].mean().item(), 'o2': tr_y2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_grad/grad_area', {'o1': area1.abs().topk(k)[0].mean().item(), 'o2': area2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_grad/grad_ratio', {'o1': ratio1.abs().topk(k)[0].mean().item(), 'o2': ratio2.abs().topk(k)[0].mean().item()}, cur_iter)
+                g_tb_lg.add_scalars(f'aug_vec_grad/grad_col_h', {'o1': col_h1.abs().topk(k)[0].mean().item(), 'o2': col_h2.abs().topk(k)[0].mean().item()}, cur_iter)
+                g_tb_lg.add_scalars(f'aug_vec_grad/grad_col_s', {'o1': col_s1.abs().topk(k)[0].mean().item(), 'o2': col_s2.abs().topk(k)[0].mean().item()}, cur_iter)
+                g_tb_lg.add_scalars(f'aug_vec_grad/grad_col_v', {'o1': col_v1.abs().topk(k)[0].mean().item(), 'o2': col_v2.abs().topk(k)[0].mean().item()}, cur_iter)
+                g_tb_lg.add_scalars(f'aug_vec_grad/grad_blur', {'o1': blur1.abs().topk(k)[0].mean().item(), 'o2': blur2.abs().topk(k)[0].mean().item()}, cur_iter)
+                g_tb_lg.add_scalars(f'aug_vec_grad/grad_tr_x', {'o1': tr_x1.abs().topk(k)[0].mean().item(), 'o2': tr_x2.abs().topk(k)[0].mean().item()}, cur_iter)
+                g_tb_lg.add_scalars(f'aug_vec_grad/grad_tr_y', {'o1': tr_y1.abs().topk(k)[0].mean().item(), 'o2': tr_y2.abs().topk(k)[0].mean().item()}, cur_iter)
+                g_tb_lg.add_scalars(f'aug_vec_grad/grad_area', {'o1': area1.abs().topk(k)[0].mean().item(), 'o2': area2.abs().topk(k)[0].mean().item()}, cur_iter)
+                g_tb_lg.add_scalars(f'aug_vec_grad/grad_ratio', {'o1': ratio1.abs().topk(k)[0].mean().item(), 'o2': ratio2.abs().topk(k)[0].mean().item()}, cur_iter)
         
         if cur_iter % log_iters == 0:
             # l_tb_lg.add_scalars(f'{prefix}/tr_loss', {'it': loss_avg.avg}, cur_iter)

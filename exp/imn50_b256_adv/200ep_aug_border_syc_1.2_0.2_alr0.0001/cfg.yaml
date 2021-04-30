@@ -15,11 +15,11 @@ aug:
     gblur: False
 
     auto_aug: True
-    adversarial: True
+    adversarial: False
     expansion: 256
-    act_name: tanh    # 'tanh', 'swish'
+    act_name: swish    # 'tanh', 'swish'
     padding_mode: border    # 'border', 'reflection' or 'zeros'
-    target_norm: 0.8
+    target_norm: 1.2
     soft_target: 0.2
 
 data:
@@ -47,7 +47,7 @@ pretrain:
     batch_size: 256         # cifar: 512, imn: 256
     knn_ld_or_test_ld_batch_size: 256
     lr: 0.2                # cifar: 0.06 for b512, imn: 0.03 for b256
-    auglr: 0.00005
+    auglr: 0.0001
     coslr: True
     schedule: [120, 160]    # step decay
     warmup: True
