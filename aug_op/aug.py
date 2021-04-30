@@ -97,7 +97,7 @@ class AugVecGenerator(nn.Module):
                 if hasattr(module, 'bias') and module.bias is not None:
                     module.bias.data.zero_()
     
-    def forward(self, im_batch: Tensor) -> Tuple[Tuple[Tensor, int, int], Tuple[Tensor, Tensor]]:
+    def forward(self, im_batch: Tensor) -> Tuple[Tuple[Tensor, Tensor, Tensor, int, int], Tuple[Tensor, Tensor]]:
         B = im_batch.shape[0]
         #   h   s   v      blur   tr_x, tr_y, area, ratio
         # concated_aug_vec = torch.tensor([[
@@ -136,7 +136,7 @@ class AugVecGenerator(nn.Module):
                 vecs[i] = unit_vec * self.target_norm
         
         return (
-            (concated_aug_vec, self.aug_dim, self.norm_p),
+            (concated_aug_vec, vecs[0].data, vecs[1].data, self.aug_dim, self.norm_p),
             (vecs[0], vecs[1])
         )
 

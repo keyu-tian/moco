@@ -690,7 +690,7 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
         bs = data1.shape[0]
         data1, data2 = data1.cuda(non_blocking=True), data2.cuda(non_blocking=True)
         if using_auto_aug:
-            (concated_aug_vec, aug_dim, norm_p), (data1, data2) = auto_aug(data1, normalizing=True)
+            (concated_aug_vec, normalized_vec1, normalized_vec2, aug_dim, norm_p), (data1, data2) = auto_aug(data1, normalizing=True)
         cuda_t = time.time()
         
         assert torch.isnan(data1).sum().item() == 0
@@ -762,7 +762,8 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
                 aug_norm1, aug_norm2 = aug_vec1.norm(norm_p, dim=1).topk(k)[0].mean().item(), aug_vec2.norm(norm_p, dim=1).topk(k)[0].mean().item()
                 aug_grad1, aug_grad2 = concated_aug_vec.grad[:, :aug_dim], concated_aug_vec.grad[:, aug_dim:]
                 
-                g_tb_lg.add_scalars(f'{prefix}/aug_vec_norm', {'o1': aug_norm1, 'o2': aug_norm2}, cur_iter)
+                g_tb_lg.add_scalars(f'aug_vec_norm/before_normalize', {'o1': aug_norm1, 'o2': aug_norm2}, cur_iter)
+                g_tb_lg.add_scalars(f'aug_vec_norm/after_normalize', {'o1': normalized_vec1.norm(norm_p, dim=1).topk(k)[0].mean().item(), 'o2': normalized_vec2.norm(norm_p, dim=1).topk(k)[0].mean().item()}, cur_iter)
                 col_h1, col_s1, col_v1, blur1, tr_x1, tr_y1, area1, ratio1 = aug_vec1.unbind(1)
                 col_h2, col_s2, col_v2, blur2, tr_x2, tr_y2, area2, ratio2 = aug_vec2.unbind(1)
                 g_tb_lg.add_scalars(f'aug_vec/col_h', {'o1': col_h1.abs().topk(k)[0].mean().item(), 'o2': col_h2.abs().topk(k)[0].mean().item()}, cur_iter)
