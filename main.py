@@ -559,9 +559,15 @@ def linear_eval(
             em_t = time.time()
             torch.cuda.empty_cache()
             master_echo(dist.is_master(), f' @@@@@ {meta.exp_root} , ept_cc: {time.time() - em_t:.3f}s,      eva_be={best_test_acc1:5.2f}', '36')
+
+        def callback(g_it):
+            test_acc1, test_acc5, test_loss = eval_test(lg, l_tb_lg, dist, meta.log_freq, epoch, ep_str, te_iters, te_ld, local_encoder_q, num_classes)
+            l_tb_lg.add_scalar(f'lnr_eval_more/test_acc1', test_acc1, g_it)
+            l_tb_lg.add_scalar(f'lnr_eval_more/test_acc5', test_acc5, g_it)
+            l_tb_lg.add_scalar(f'lnr_eval_more/test_loss', test_loss, g_it)
         
         start_t = time.time()
-        tr_loss: float = train_one_ep(False, 'lnr_eval', lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, eval_iters, eval_ld, None, encoder_q, params, optimizer, avgs)
+        tr_loss: float = train_one_ep(False, 'lnr_eval', lg, g_tb_lg, l_tb_lg, dist, meta, epoch, ep_str, eval_iters, eval_ld, callback, encoder_q, params, optimizer, avgs)
         tr_loss_mov_avg = tr_loss if tr_loss_mov_avg == 0 else tr_loss_mov_avg * 0.99 + tr_loss * 0.01
         train_t = time.time()
         
@@ -678,8 +684,11 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
         data_t = time.time()
         bs = data1.shape[0]
         data1, data2 = data1.cuda(non_blocking=True), data2.cuda(non_blocking=True)
-        if auto_aug is not None:
+        if isinstance(auto_aug, Augmenter):
             data1, data2 = auto_aug(data1, normalizing=True)
+        elif cur_iter % 8 == 0:
+            auto_aug(cur_iter)
+            
         cuda_t = time.time()
         
         assert torch.isnan(data1).sum().item() == 0
