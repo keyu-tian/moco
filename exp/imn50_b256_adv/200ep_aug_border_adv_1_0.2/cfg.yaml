@@ -55,7 +55,7 @@ pretrain:
     augwd: 1e-5
     nowd: False
     grad_clip: 4.
-    aug_grad_clip: 2.
+    aug_grad_clip: 10.
 
 lnr_eval:
     eval_epochs: 100
