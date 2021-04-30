@@ -757,7 +757,7 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
             g_tb_lg.add_scalar(f'{prefix}/orig_aug_norm', orig_aug_norm, cur_iter)
             g_tb_lg.add_scalars(f'{prefix}/aug_lr', {'actual': actual_aug_lr}, cur_iter)
 
-            k = max(round(aug_vec1.shape[0] * 0.3), 1)
+            k = max(round(concated_aug_vec.shape[0] * 0.3), 1)
             aug_vec1, aug_vec2 = concated_aug_vec.data[:, :aug_dim], concated_aug_vec.data[:, aug_dim:]
             aug_norm1, aug_norm2 = aug_vec1.norm(norm_p, dim=1).topk(k)[0].mean().item(), aug_vec2.norm(norm_p, dim=1).topk(k)[0].mean().item()
             aug_grad1, aug_grad2 = concated_aug_vec.grad[:, :aug_dim], concated_aug_vec.grad[:, aug_dim:]
