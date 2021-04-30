@@ -761,6 +761,12 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
                 aug_vec1, aug_vec2 = concated_aug_vec.data[:, :aug_dim], concated_aug_vec.data[:, aug_dim:]
                 aug_norm1, aug_norm2 = aug_vec1.norm(norm_p, dim=1).mean().item(), aug_vec2.norm(norm_p, dim=1).mean().item()
                 aug_grad1, aug_grad2 = concated_aug_vec.grad[:, :aug_dim], concated_aug_vec.grad[:, aug_dim:]
+
+                [
+                    g_tb_lg.add_scalars(f'aug_para/layer{name}', {'abs.mean': para.data.abs().mean().item(), 'std': para.data.std().item()}, cur_iter)
+                    for name, para in auto_aug.generator.fcs.named_parameters() if para.numel() > 4
+                ]
+                
                 
                 g_tb_lg.add_scalars(f'aug_vec_norm/before_normalize', {'o1': aug_norm1, 'o2': aug_norm2}, cur_iter)
                 g_tb_lg.add_scalars(f'aug_vec_norm/after_normalize', {'o1': normalized_vec1.norm(norm_p, dim=1).mean().item(), 'o2': normalized_vec2.norm(norm_p, dim=1).mean().item()}, cur_iter)

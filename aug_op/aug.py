@@ -383,7 +383,7 @@ def main():
     )
     aa(torch.rand(3, 4, 5, 6))
     
-    for name, p in aa.named_parameters():
+    for name, p in aa.generator.fcs.named_parameters():
         print(name, p.shape)
 
 
