@@ -281,7 +281,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
         pret_res_str = pretrain(
             pret_knn_args, auto_aug, cfg.data.meta.num_classes, ExpMeta(
                 cfg.torch_ddp, cfg.moco.arch, cfg.job.exp_root, os.path.split(cfg.job.exp_root)[-1], cfg.job.descs, cfg.log_freq, cfg.resume_ckpt,
-                cfg.pretrain.epochs, cfg.pretrain.lr, cfg.pretrain.auglr, cfg.pretrain.wd, cfg.pretrain.augwd, cfg.pretrain.nowd, cfg.pretrain.coslr, cfg.pretrain.schedule, cfg.pretrain.warmup, cfg.pretrain.grad_clip, cfg.pretrain.aug_grad_clip
+                cfg.pretrain.epochs, float(cfg.pretrain.lr), float(cfg.pretrain.auglr), float(cfg.pretrain.wd), float(cfg.pretrain.augwd), cfg.pretrain.nowd, cfg.pretrain.coslr, cfg.pretrain.schedule, cfg.pretrain.warmup, cfg.pretrain.grad_clip, cfg.pretrain.aug_grad_clip
             ),
             lg, g_tb_lg, l_tb_lg, dist, pretrain_model, pret_iters, pret_ld, pret_sp, test_iters, test_ld
         )
@@ -307,7 +307,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
     linear_eval(
         pret_res_str, cfg.data.meta.num_classes, ExpMeta(
             cfg.torch_ddp, cfg.moco.arch, cfg.job.exp_root, os.path.split(cfg.job.exp_root)[-1], cfg.job.descs, cfg.log_freq, cfg.eval_resume_ckpt,
-            cfg.lnr_eval.eval_epochs, cfg.lnr_eval.eval_lr, 0., cfg.lnr_eval.eval_wd, 0., cfg.lnr_eval.eval_nowd, cfg.lnr_eval.eval_coslr, cfg.lnr_eval.eval_schedule, cfg.lnr_eval.eval_warmup, cfg.lnr_eval.eval_grad_clip, None
+            cfg.lnr_eval.eval_epochs, float(cfg.lnr_eval.eval_lr), 0., float(cfg.lnr_eval.eval_wd), 0., cfg.lnr_eval.eval_nowd, cfg.lnr_eval.eval_coslr, cfg.lnr_eval.eval_schedule, cfg.lnr_eval.eval_warmup, cfg.lnr_eval.eval_grad_clip, None
         ),
         lg, g_tb_lg, l_tb_lg, dist, lnr_eval_encoder_q, eval_iters, eval_ld, eval_sp, test_iters, test_ld
     )
