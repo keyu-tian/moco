@@ -752,7 +752,7 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
             l_tb_lg.add_scalar(f'{prefix}/train_loss', tr_loss_avg.last, cur_iter)
         
         if using_auto_aug:
-            if cur_iter < 50 or cur_iter % log_iters == 0 or (actual_aug_lr < sche_aug_lr - 1e-6 and random.randrange(8) == 0):
+            if cur_iter < 50 or cur_iter % log_iters == 0 or (actual_aug_lr < sche_aug_lr - 1e-6 and random.randrange(16) == 0):
                 g_tb_lg.add_scalars(f'{prefix}/aug_lr', {'scheduled': sche_aug_lr}, cur_iter)
                 g_tb_lg.add_scalar(f'{prefix}/orig_aug_norm', orig_aug_norm, cur_iter)
                 g_tb_lg.add_scalars(f'{prefix}/aug_lr', {'actual': actual_aug_lr}, cur_iter)
