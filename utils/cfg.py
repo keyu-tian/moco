@@ -65,6 +65,7 @@ class PretrainCfg(NamedTuple):
     lr: float = 0.03  # cifar: 0.06 for b512, imn: 0.03 for b256
     augop: str = 'SGD'
     auglr: float = 0.001
+    augmom: float = 0.3
     coslr: bool = True
     schedule: List[int] = [120, 160]  # step decay
     warmup: bool = True

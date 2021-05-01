@@ -49,6 +49,7 @@ pretrain:
     lr: 0.2                # cifar: 0.06 for b512, imn: 0.03 for b256
     augop: SGD
     auglr: 0.004
+    augmom: 0.9
     coslr: True
     schedule: [120, 160]    # step decay
     warmup: True

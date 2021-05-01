@@ -1,0 +1,73 @@
+torch_ddp: True             # cifar: False, imagenet: True
+resume_ckpt: ~ # /mnt/lustre/tiankeyu/data_t1/moco_imn/exp/imn50_lnr_eval/200ep_b256_nbn_lr0.1_vlr20/exp-2021-0424-055825/pretrain_final_loss4.806.pth
+eval_resume_ckpt: ~
+seed_base: ~
+seed: ~
+log_freq: 3
+pret_verbose: False
+
+aug:
+    no_gray: False
+    no_flip: False
+    rrc_range: [0.2, 1.]
+    cj_args: [0.4, 0.4, 0.4, 0.1]
+    blur_args: [.1, 0.3]
+    gblur: False
+
+    auto_aug: True
+    adversarial: True
+    expansion: 256
+    act_name: tanh    # 'tanh', 'swish'
+    padding_mode: border    # 'border', 'reflection' or 'zeros'
+    target_norm: 1.0
+    soft_target: 0.2
+
+data:
+    dataset: imagenet50    # cifar10, cifar100, imagenet, imagenetX (5<X<895, for sub imagenet)
+#   meta: [will be assigned in runtime]
+    ds_root: /mnt/lustre/share/images
+    num_workers: 4
+    pin_mem: True
+
+moco:
+    arch: resnet50
+    init: False
+    moco_dim: 128   # cifar & imn: 128
+    moco_k: 8192    # cifar: 4096, imn: 65536
+    moco_m: 0.99   # cifar: 0.99, imn: 0.999
+    moco_t: 0.2    # cifar: 0.1, imn(mocov1): 0.07, v2: 0.2
+    sbn: False
+    mlp: True
+    moco_symm: False
+    knn_k: 200      # only for cifar
+    knn_t: 0.2      # only for cifar
+
+pretrain:
+    epochs: 200
+    batch_size: 256         # cifar: 512, imn: 256
+    knn_ld_or_test_ld_batch_size: 256
+    lr: 0.2                # cifar: 0.06 for b512, imn: 0.03 for b256
+    augop: SGD
+    auglr: 0.002
+    augmom: 0.5
+    coslr: True
+    schedule: [120, 160]    # step decay
+    warmup: True
+    wd: 1e-4
+    augwd: 5e-5
+    nowd: False
+    grad_clip: 4.
+    aug_grad_clip: 12.
+
+lnr_eval:
+    eval_epochs: 100
+    eval_batch_size: 256    # cifar: 512, imn: 256
+    eval_lr: 30             # cifar & imn: 30 for b512 & b256
+    eval_coslr: True
+    eval_schedule: [60, 80]
+    eval_warmup: True
+    eval_wd: 0
+    eval_nowd: False
+    eval_grad_clip: 4.
+
+
