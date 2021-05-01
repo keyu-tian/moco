@@ -6,6 +6,7 @@ import random
 import time
 from copy import deepcopy
 from datetime import datetime
+from functools import partial
 from logging import Logger
 from pprint import pformat as pf
 from typing import NamedTuple, Optional, List
@@ -360,7 +361,7 @@ def pretrain(
     optimizer = torch.optim.SGD(params, lr=meta.lr, weight_decay=meta.wd, momentum=0.9)
     if auto_aug is not None:
         aug_optimizer = {
-            'SGD': torch.optim.SGD,
+            'SGD': partial(torch.optim.SGD, momentum=0.3),
             'Adam': torch.optim.Adam,
             'AdamW': torch.optim.AdamW,
         }[meta.augop](auto_aug.parameters(), lr=meta.auglr, weight_decay=meta.augwd)
