@@ -310,17 +310,21 @@ class Augmenter(nn.Module):
         sc_x: Tensor = (area / ratio).sqrt()
         sc_y: Tensor = sc_x * ratio
 
-        inv_M_scale = Augmenter.eye3.repeat(B, 1, 1)   # (B, 3, 3)
+        inv_M_scale = Augmenter.eye3.repeat(B, 1, 1)    # (B, 3, 3)
         inv_M_scale[:, 0, 0] = sc_x
         inv_M_scale[:, 1, 1] = sc_y
 
-        inv_M_trans = Augmenter.eye3.repeat(B, 1, 1)   # (B, 3, 3)
+        inv_M_trans = Augmenter.eye3.repeat(B, 1, 1)    # (B, 3, 3)
         inv_M_trans[:, 0, 2] = tr_x
         inv_M_trans[:, 1, 2] = tr_y
         # todo: 平移出去越界怎么办，要把area控制住吗？那如果clip的硬控制住，还怎么保证还能传梯度？还是说一旦越界就让他们都收敛点？
         # todo: scale出去越界怎么办？因为当area接近1而ratio很悬殊的时候，长边就会伸出去
 
+        rand_M_hflip = Augmenter.eye3.repeat(B, 1, 1)   # (B, 3, 3)
+        rand_M_hflip[:, 0, 0] *= torch.bernoulli(torch.empty_like(tr_y), p=0.5) * 2 - 1
+
         inverse_trans_matrices = torch.matmul(inv_M_scale, inv_M_trans) # scale first, then translate:  Tx = Tr @ Sc @ x  ->  T'x = Sc' @ Tr' @ x
+        # inverse_trans_matrices = torch.matmul(inverse_trans_matrices, rand_M_hflip)
         
         homo = Augmenter._get_homo(H, W)
         rgb_imgs = Augmenter._apply_transform_to_batch(rgb_imgs, inverse_trans_matrices, homo, Augmenter.padding_mode)
