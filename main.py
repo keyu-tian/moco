@@ -769,6 +769,10 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
             l_tb_lg.add_scalar(f'{prefix}/train_loss', tr_loss_avg.last, cur_iter)
         
         if using_auto_aug:
+            if it + 1 == tr_iters:
+                g_tb_lg.add_images('view1', auto_aug.denormalize(data1[:6].data).cpu().numpy(), cur_iter, dataformats='NCHW')
+                g_tb_lg.add_images('view2', auto_aug.denormalize(data2[:6].data).cpu().numpy(), cur_iter, dataformats='NCHW')
+            
             if cur_iter < 10 or cur_iter % log_iters == 0 or (actual_aug_lr < sche_aug_lr - 1e-6 and random.randrange(16) == 0):
                 g_tb_lg.add_scalars(f'{prefix}/aug_lr', {'scheduled': sche_aug_lr}, cur_iter)
                 g_tb_lg.add_scalar(f'{prefix}/orig_aug_grad_norm', orig_aug_norm, cur_iter)
@@ -807,6 +811,7 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
                         m_posi = 0 if n_posi == 0 else (torch.clamp(aug_param, min=0).sum().item() / n_posi)
                         m_nega = 0 if n_nega == 0 else (torch.clamp(aug_param, max=0).sum().item() / n_nega)
                         g_tb_lg.add_scalars(f'aug_vec/{j}_{name}', {f'P{i+1}': m_posi, f'N{i+1}': m_nega}, cur_iter)
+                        g_tb_lg.add_scalars(f'aug_vec/vec{i+1}_all', {f'{j}_{name}_P': m_posi, f'{j}_{name}_N': m_nega}, cur_iter)
 
                 for i, grads in enumerate((aug_grad1.unbind(1), aug_grad2.unbind(1))):
                     for j, (grad, name) in enumerate(zip(grads, names)):
