@@ -803,7 +803,7 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
                         mine.compute_score(v1.cpu().numpy(), v2.cpu().numpy())
                         res[i][j] = mine.mic()
                 
-                if cur_iter % 3 == 0:
+                if cur_iter % (3 * log_iters) == 0:
                     g_tb_lg.add_scalars('all_mic_diag', {name: res.diagonal()[i].item() for i, name in enumerate(names)}, cur_iter)
                     g_tb_lg.add_histogram('mic_diag', res.diagonal(), cur_iter)
                     g_tb_lg.add_histogram('mic_other', [res[i][j].item() for i, j in itertools.combinations(range(N), 2)], cur_iter)
