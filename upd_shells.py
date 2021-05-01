@@ -9,7 +9,7 @@ def dfs(cwd, upd_fn):
             dfs(path, upd_fn)
         else:
             # if name == 'cfg.yaml' or name.endswith('.sh'):
-            if name == 'cfg.yaml':
+            if name == 'spring.sh':
                 upd_fn(path)
 
 
@@ -20,8 +20,8 @@ if __name__ == '__main__':
         with open(path, 'w', encoding='utf-8') as fp:
             fp.write(
                 ctt.replace(
-"""log_freq: 4""",
-"""log_freq: 3""",
+"""spring.submit run -r --gpu -n4 """,
+"""spring.submit run -r --gpu -n4 -x SH-IDC1-10-5-31-27 """,
                 )
             )
     
