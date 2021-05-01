@@ -48,7 +48,7 @@ pretrain:
     knn_ld_or_test_ld_batch_size: 256
     lr: 0.2                # cifar: 0.06 for b512, imn: 0.03 for b256
     augop: SGD
-    auglr: 0.0005
+    auglr: 0.0002
     coslr: True
     schedule: [120, 160]    # step decay
     warmup: True
