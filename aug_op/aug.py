@@ -324,7 +324,7 @@ class Augmenter(nn.Module):
         rand_M_hflip[:, 0, 0] *= torch.bernoulli(torch.empty_like(tr_y), p=0.5) * 2 - 1
 
         inverse_trans_matrices = torch.matmul(inv_M_scale, inv_M_trans) # scale first, then translate:  Tx = Tr @ Sc @ x  ->  T'x = Sc' @ Tr' @ x
-        inverse_trans_matrices = torch.matmul(inverse_trans_matrices, rand_M_hflip)
+        # inverse_trans_matrices = torch.matmul(inverse_trans_matrices, rand_M_hflip)
         
         homo = Augmenter._get_homo(H, W)
         rgb_imgs = Augmenter._apply_transform_to_batch(rgb_imgs, inverse_trans_matrices, homo, Augmenter.padding_mode)
