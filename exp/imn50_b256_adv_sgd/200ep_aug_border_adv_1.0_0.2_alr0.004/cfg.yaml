@@ -3,7 +3,7 @@ resume_ckpt: ~ # /mnt/lustre/tiankeyu/data_t1/moco_imn/exp/imn50_lnr_eval/200ep_
 eval_resume_ckpt: ~
 seed_base: ~
 seed: ~
-log_freq: 4
+log_freq: 3
 pret_verbose: False
 
 aug:
