@@ -798,12 +798,12 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
                 g_tb_lg.add_histogram('mic_diag', res.diagonal(), cur_iter)
                 g_tb_lg.add_histogram('mic_other', [res[i][j].item() for i, j in itertools.combinations(range(N), 2)], cur_iter)
 
-                for i, params in enumerate((aug_vec1.unbind(1), aug_vec2.unbind(1))):
-                    for j, (param, name) in enumerate(zip(params, names)):
-                        n_posi = (param > 0).sum().item()
-                        n_nega = param.numel() - n_posi
-                        m_posi = 0 if n_posi == 0 else (torch.clamp(param, min=0).sum().item() / n_posi)
-                        m_nega = 0 if n_nega == 0 else (torch.clamp(param, max=0).sum().item() / n_nega)
+                for i, aug_params in enumerate((aug_vec1.unbind(1), aug_vec2.unbind(1))):
+                    for j, (aug_param, name) in enumerate(zip(aug_params, names)):
+                        n_posi = (aug_param > 0).sum().item()
+                        n_nega = aug_param.numel() - n_posi
+                        m_posi = 0 if n_posi == 0 else (torch.clamp(aug_param, min=0).sum().item() / n_posi)
+                        m_nega = 0 if n_nega == 0 else (torch.clamp(aug_param, max=0).sum().item() / n_nega)
                         g_tb_lg.add_scalars(f'aug_vec/{j}_{name}', {f'P{i+1}': m_posi, f'N{i+1}': m_nega}, cur_iter)
 
                 for i, grads in enumerate((aug_grad1.unbind(1), aug_grad2.unbind(1))):
