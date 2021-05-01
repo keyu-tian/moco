@@ -773,7 +773,7 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
             if epoch == 0 and it == 0:
                 g_tb_lg.add_images('initial_view1', auto_aug.denormalize(data1[:6].data).cpu().numpy(), epoch, dataformats='NCHW')
                 g_tb_lg.add_images('initial_view2', auto_aug.denormalize(data2[:6].data).cpu().numpy(), epoch, dataformats='NCHW')
-            elif epoch > 0 and epoch % 5 == 0 and it+1 == tr_iters:
+            elif (epoch+1) % 5 == 0 and it+1 == tr_iters:
                 g_tb_lg.add_images('view1', auto_aug.denormalize(data1[:6].data).cpu().numpy(), epoch, dataformats='NCHW')
                 g_tb_lg.add_images('view2', auto_aug.denormalize(data2[:6].data).cpu().numpy(), epoch, dataformats='NCHW')
             
