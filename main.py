@@ -1,4 +1,5 @@
 import argparse
+import itertools
 import json
 import os
 import random
@@ -8,9 +9,10 @@ from datetime import datetime
 from logging import Logger
 from pprint import pformat as pf
 from typing import NamedTuple, Optional, List
-import numpy as np
 
 import colorama
+import minepy
+import numpy as np
 import torch
 import torch.nn.functional as F
 from retrying import retry
@@ -430,9 +432,15 @@ def pretrain(
         topk_acc1s.push_q(test_acc1)
         best_updated = test_acc1 > best_test_acc1
         state_dict = {
-            'arch': meta.arch, 'epoch': epoch, 'pret_model': pret_model.state_dict(), 'optimizer': optimizer.state_dict(), 'aug_optimizer': aug_optimizer.state_dict() if aug_optimizer is not None else {},
+            'arch': meta.arch, 'epoch': epoch, 'pret_model': pret_model.state_dict(), 'optimizer': optimizer.state_dict(),
             'topk_acc1s': list(topk_acc1s), 'best_test_acc1': best_test_acc1, 'tr_loss_mov_avg': tr_loss_mov_avg,
         }
+        if aug_optimizer is not None and dist.is_master():
+            torch.save({
+                'aug_optimizer': aug_optimizer.state_dict(),
+                'auto_aug': auto_aug.state_dict()
+            }, os.path.join(meta.exp_root, 'auto_aug.pth'))
+        
         if best_updated:
             best_test_acc1 = test_acc1
             torch.save(state_dict, os.path.join(meta.exp_root, f'pretrain_best.pth'))
@@ -699,7 +707,7 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
         bs = data1.shape[0]
         data1, data2 = data1.cuda(non_blocking=True), data2.cuda(non_blocking=True)
         if using_auto_aug:
-            (concated_aug_vec, normalized_vec1, normalized_vec2, aug_dim, norm_p), (data1, data2) = auto_aug(data1, normalizing=True)
+            (concated_aug_vec, aug_dim, norm_p), (data1, data2) = auto_aug(data1, normalizing=True)
         cuda_t = time.time()
         
         assert torch.isnan(data1).sum().item() == 0
@@ -776,30 +784,31 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
                     for name, para in auto_aug.generator.fcs.named_parameters() if para.numel() > 4
                 ]
                 
-                
-                g_tb_lg.add_scalars(f'aug_vec_norm/before_normalize', {'o1': aug_norm1, 'o2': aug_norm2}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_vec_norm/after_normalize', {'o1': normalized_vec1.norm(norm_p, dim=1).mean().item(), 'o2': normalized_vec2.norm(norm_p, dim=1).mean().item()}, cur_iter)
-                col_h1, col_s1, col_v1, blur1, tr_x1, tr_y1, area1, ratio1 = aug_vec1.unbind(1)
-                col_h2, col_s2, col_v2, blur2, tr_x2, tr_y2, area2, ratio2 = aug_vec2.unbind(1)
-                g_tb_lg.add_scalars(f'aug_vec/col_h', {'o1': col_h1.abs().topk(k)[0].mean().item(), 'o2': col_h2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_vec/col_s', {'o1': col_s1.abs().topk(k)[0].mean().item(), 'o2': col_s2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_vec/col_v', {'o1': col_v1.abs().topk(k)[0].mean().item(), 'o2': col_v2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_vec/blur', {'o1': blur1.abs().topk(k)[0].mean().item(), 'o2': blur2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_vec/tr_x', {'o1': tr_x1.abs().topk(k)[0].mean().item(), 'o2': tr_x2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_vec/tr_y', {'o1': tr_y1.abs().topk(k)[0].mean().item(), 'o2': tr_y2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_vec/area', {'o1': area1.abs().topk(k)[0].mean().item(), 'o2': area2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_vec/ratio', {'o1': ratio1.abs().topk(k)[0].mean().item(), 'o2': ratio2.abs().topk(k)[0].mean().item()}, cur_iter)
-    
-                col_h1, col_s1, col_v1, blur1, tr_x1, tr_y1, area1, ratio1 = aug_grad1.unbind(1)
-                col_h2, col_s2, col_v2, blur2, tr_x2, tr_y2, area2, ratio2 = aug_grad2.unbind(1)
-                g_tb_lg.add_scalars(f'aug_vec_grad/grad_col_h', {'o1': col_h1.abs().topk(k)[0].mean().item(), 'o2': col_h2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_vec_grad/grad_col_s', {'o1': col_s1.abs().topk(k)[0].mean().item(), 'o2': col_s2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_vec_grad/grad_col_v', {'o1': col_v1.abs().topk(k)[0].mean().item(), 'o2': col_v2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_vec_grad/grad_blur', {'o1': blur1.abs().topk(k)[0].mean().item(), 'o2': blur2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_vec_grad/grad_tr_x', {'o1': tr_x1.abs().topk(k)[0].mean().item(), 'o2': tr_x2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_vec_grad/grad_tr_y', {'o1': tr_y1.abs().topk(k)[0].mean().item(), 'o2': tr_y2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_vec_grad/grad_area', {'o1': area1.abs().topk(k)[0].mean().item(), 'o2': area2.abs().topk(k)[0].mean().item()}, cur_iter)
-                g_tb_lg.add_scalars(f'aug_vec_grad/grad_ratio', {'o1': ratio1.abs().topk(k)[0].mean().item(), 'o2': ratio2.abs().topk(k)[0].mean().item()}, cur_iter)
+                g_tb_lg.add_scalars(f'aug_vec_norm/before_normalize', {'n1': aug_norm1, 'n2': aug_norm2}, cur_iter)
+
+                names = ('col_h', 'col_s', 'col_v', 'blur', 'tr_x', 'tr_y', 'area', 'ratio')
+                N = len(names)
+                res = np.zeros((N, N))
+                for i, v1 in enumerate(aug_vec1.unbind(1)):
+                    for j, v2 in enumerate(aug_vec2.unbind(1)):
+                        mine = minepy.MINE(alpha=0.6, c=15, est="mic_approx")
+                        mine.compute_score(v1, v2)
+                        res[i][j] = mine.mic()
+                g_tb_lg.add_scalars('mic_diag', {name: res.diagonal()[i].item() for i, name in enumerate(names)}, cur_iter)
+                g_tb_lg.add_histogram('mic_diag', res.diagonal(), cur_iter)
+                g_tb_lg.add_histogram('mic_other', [res[i][j].item() for i, j in itertools.combinations(range(N), 2)], cur_iter)
+
+                for i, params in enumerate((aug_vec1.unbind(1), aug_vec2.unbind(1))):
+                    for j, (param, name) in enumerate(zip(params, names)):
+                        n_posi = (param > 0).sum().item()
+                        n_nega = param.numel() - n_posi
+                        m_posi = 0 if n_posi == 0 else (torch.clamp(param, min=0).sum().item() / n_posi)
+                        m_nega = 0 if n_nega == 0 else (torch.clamp(param, max=0).sum().item() / n_nega)
+                        g_tb_lg.add_scalars(f'aug_vec/{j}_{name}', {f'P{i+1}': m_posi, f'N{i+1}': m_nega}, cur_iter)
+
+                for i, grads in enumerate((aug_grad1.unbind(1), aug_grad2.unbind(1))):
+                    for j, (grad, name) in enumerate(zip(grads, names)):
+                        g_tb_lg.add_scalars(f'aug_vec_grad/{j}_{name}', {f'G{i+1}': grad.abs().mean().item()}, cur_iter)
         
         if cur_iter % log_iters == 0:
             # l_tb_lg.add_scalars(f'{prefix}/tr_loss', {'it': loss_avg.avg}, cur_iter)

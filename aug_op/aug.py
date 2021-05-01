@@ -58,9 +58,10 @@ class AugVecGenerator(nn.Module):
     def __init__(self, expansion, aug_dim, target_norm, soft_target, activate, norm_p):
         assert 0 <= soft_target <= 1
         super(AugVecGenerator, self).__init__()
-        self.aug_dim = aug_dim
-        self.target_norm, self.soft_target = target_norm, soft_target
-        self.norm_p = norm_p
+        self.register_buffer('aug_dim', torch.tensor(aug_dim))
+        self.register_buffer('target_norm', torch.tensor(target_norm))
+        self.register_buffer('soft_target', torch.tensor(soft_target))
+        self.register_buffer('norm_p', torch.tensor(norm_p))
         
         output_dim = aug_dim * 2
         dims = [d * expansion for d in [2, 1, 1, 1]]
@@ -81,12 +82,19 @@ class AugVecGenerator(nn.Module):
             act = torch.tanh if i + 1 == len(input_dims) else activate
             self.fcs.append(FCBlock(inp_d, oup_d, noi_d, act))
         
-        self.input0_dim = input_dims[0]
+        self.register_buffer('input0_dim', torch.tensor(input_dims[0]))
         self.initialize()
         
         # print(input_dims)
         # print(output_dims)
         # print(noise_dims)
+    
+    def cuda(self, *args, **kwargs):
+        ret = super(AugVecGenerator, self).cuda(*args, **kwargs)
+        self.input0_dim = self.input0_dim.cpu()
+        self.aug_dim = self.aug_dim.cpu()
+        self.norm_p = self.norm_p.cpu()
+        return ret
     
     def initialize(self):
         for i, module in enumerate(self.fcs):
@@ -97,37 +105,39 @@ class AugVecGenerator(nn.Module):
                 if hasattr(module, 'bias') and module.bias is not None:
                     module.bias.data.zero_()
     
-    def forward(self, im_batch: Tensor) -> Tuple[Tuple[Tensor, Tensor, Tensor, int, int], Tuple[Tensor, Tensor]]:
+    def forward(self, im_batch: Tensor) -> Tuple[Tuple[Tensor, int, int], Tuple[Tensor, Tensor]]:
         B = im_batch.shape[0]
-        #   h   s   v      blur   tr_x, tr_y, area, ratio
-        # concated_aug_vec = torch.tensor([[
-        #     0., 0., 0.,     0.,     -0.5, 0., 0.5, -0.5,             0., 0., 0.,     0.,     0., 0., 0., 0.
-        # ]]).repeat(B, 1)
-        # return concated_aug_vec
 
-        feature = uniform_noise(B, self.input0_dim).to(im_batch.device)
+        feature = uniform_noise(B, self.input0_dim.item()).to(im_batch.device)
         for noisy_fc in self.fcs:
             feature = noisy_fc(feature)
+
+        #   h   s   v      blur   tr_x, tr_y, area, ratio
+        # feature = torch.tensor([[
+        #     0.41, 0.39, 0.39,     0.53,     0.93, 0.96, 0.97, 0.62,
+        #     0.41, 0.39, 0.96,     0.45,     0.93, 0.96, 0.66, 0.62,
+        # ]]).repeat(B, 1)
         
         concated_aug_vec = feature  # (B, 2*self.aug_dim)
         concated_aug_vec.retain_grad()  # todo: debug看的
         
-        # mask or i_mask: (B, self.aug_dim)
-        mask = torch.bernoulli(torch.empty(B, 1), 0.5).to(im_batch.device).expand(B, self.aug_dim)
+        ad = self.aug_dim.item()
+        # mask or i_mask: (B, ad)
+        mask = torch.bernoulli(torch.empty(B, 1), 0.5).to(im_batch.device).expand(B, ad)
         i_mask = torch.ones_like(mask) - mask
         
-        # m1 or m2: (B, 2*self.aug_dim)
+        # m1 or m2: (B, 2*ad)
         m1, m2 = torch.cat((mask, i_mask), dim=1), torch.cat((i_mask, mask), dim=1)
         
-        # vec1 or vec2: (B, self.aug_dim)
+        # vec1 or vec2: (B, ad)
         vec1, vec2 = concated_aug_vec * m1, concated_aug_vec * m2
-        vec1 = vec1[:, :self.aug_dim] + vec1[:, self.aug_dim:]
-        vec2 = vec2[:, :self.aug_dim] + vec2[:, self.aug_dim:]
+        vec1 = vec1[:, :ad] + vec1[:, ad:]
+        vec2 = vec2[:, :ad] + vec2[:, ad:]
         
+        p = self.norm_p.item()
         vecs = [vec1, vec2]
-        
         for i in [0, 1]:
-            norm = vecs[i].norm(p=self.norm_p, dim=1, keepdim=True)
+            norm = vecs[i].norm(p=p, dim=1, keepdim=True)
             unit_vec = vecs[i] / norm
             if self.soft_target > 1e-5:
                 range01 = norm.sigmoid()
@@ -136,7 +146,7 @@ class AugVecGenerator(nn.Module):
                 vecs[i] = unit_vec * self.target_norm
         
         return (
-            (concated_aug_vec, vecs[0].data, vecs[1].data, self.aug_dim, self.norm_p),
+            (concated_aug_vec, ad, p),
             (vecs[0], vecs[1])
         )
 
@@ -385,6 +395,9 @@ def main():
     
     for name, p in aa.generator.fcs.named_parameters():
         print(name, p.shape)
+    
+    for k in aa.generator.state_dict():
+        print(k)
 
 
 if __name__ == '__main__':
