@@ -258,7 +258,7 @@ class Augmenter(nn.Module):
         d_h, d_s, d_v = color_ps.unbind(dim=1)  # (B, )
         d_h: Tensor = (0.15 * d_h).view(B, 1, 1, 1)
         d_s: Tensor = (0.5 * d_s).view(B, 1, 1, 1)
-        d_v: Tensor = (0.5 * d_v).view(B, 1, 1, 1)
+        d_v: Tensor = (0.4 * d_v).view(B, 1, 1, 1)
         
         # print('dh:', d_h.data.view(-1)[:10])
         # print('ds:', d_s.data.view(-1)[:10])
