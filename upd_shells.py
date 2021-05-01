@@ -20,8 +20,8 @@ if __name__ == '__main__':
         with open(path, 'w', encoding='utf-8') as fp:
             fp.write(
                 ctt.replace(
-"""spring.submit run -r --gpu -n4 """,
 """spring.submit run -r --gpu -n4 -x SH-IDC1-10-5-31-27 """,
+"""spring.submit run -r --gpu -n4 """,
                 )
             )
     
