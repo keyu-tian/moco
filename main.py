@@ -281,7 +281,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
         pret_res_str = pretrain(
             pret_knn_args, auto_aug, cfg.data.meta.num_classes, ExpMeta(
                 cfg.torch_ddp, cfg.moco.arch, cfg.job.exp_root, os.path.split(cfg.job.exp_root)[-1], cfg.job.descs, cfg.log_freq, cfg.resume_ckpt,
-                cfg.pretrain.epochs, float(cfg.pretrain.lr), float(cfg.pretrain.auglr), float(cfg.pretrain.wd), float(cfg.pretrain.augwd), cfg.pretrain.nowd, cfg.pretrain.coslr, cfg.pretrain.schedule, cfg.pretrain.warmup, cfg.pretrain.grad_clip, cfg.pretrain.aug_grad_clip
+                cfg.pretrain.epochs, float(cfg.pretrain.lr), cfg.pretrain.augop, float(cfg.pretrain.auglr), float(cfg.pretrain.wd), float(cfg.pretrain.augwd), cfg.pretrain.nowd, cfg.pretrain.coslr, cfg.pretrain.schedule, cfg.pretrain.warmup, cfg.pretrain.grad_clip, cfg.pretrain.aug_grad_clip
             ),
             lg, g_tb_lg, l_tb_lg, dist, pretrain_model, pret_iters, pret_ld, pret_sp, test_iters, test_ld
         )
@@ -307,7 +307,7 @@ def main_process(cfg: Cfg, dist: TorchDistManager):
     linear_eval(
         pret_res_str, cfg.data.meta.num_classes, ExpMeta(
             cfg.torch_ddp, cfg.moco.arch, cfg.job.exp_root, os.path.split(cfg.job.exp_root)[-1], cfg.job.descs, cfg.log_freq, cfg.eval_resume_ckpt,
-            cfg.lnr_eval.eval_epochs, float(cfg.lnr_eval.eval_lr), 0., float(cfg.lnr_eval.eval_wd), 0., cfg.lnr_eval.eval_nowd, cfg.lnr_eval.eval_coslr, cfg.lnr_eval.eval_schedule, cfg.lnr_eval.eval_warmup, cfg.lnr_eval.eval_grad_clip, None
+            cfg.lnr_eval.eval_epochs, float(cfg.lnr_eval.eval_lr), 'SGD', 0., float(cfg.lnr_eval.eval_wd), 0., cfg.lnr_eval.eval_nowd, cfg.lnr_eval.eval_coslr, cfg.lnr_eval.eval_schedule, cfg.lnr_eval.eval_warmup, cfg.lnr_eval.eval_grad_clip, None
         ),
         lg, g_tb_lg, l_tb_lg, dist, lnr_eval_encoder_q, eval_iters, eval_ld, eval_sp, test_iters, test_ld
     )
@@ -328,6 +328,7 @@ class ExpMeta(NamedTuple):
     # hyperparameters
     epochs: int
     lr: float
+    augop: str
     auglr: float
     wd: float
     augwd: float
@@ -356,7 +357,11 @@ def pretrain(
     params = list(filter(lambda p: p.requires_grad, params))
     optimizer = torch.optim.SGD(params, lr=meta.lr, weight_decay=meta.wd, momentum=0.9)
     if auto_aug is not None:
-        aug_optimizer = torch.optim.SGD(auto_aug.parameters(), lr=meta.auglr, weight_decay=meta.augwd)
+        aug_optimizer = {
+            'SGD': torch.optim.SGD,
+            'Adam': torch.optim.Adam,
+            'AdamW': torch.optim.AdamW,
+        }[meta.augop](auto_aug.parameters(), lr=meta.auglr, weight_decay=meta.augwd)
     else:
         aug_optimizer = None
     lg.info(f'=> [pretrain]: create op: model_cls={pret_model.__class__.__name__}, len(params)={len(params)}, max_lr={meta.lr}, max_alr={meta.auglr}, wd={meta.wd}, nowd={meta.nowd}, coslr={meta.coslr}, warm up={meta.warmup}')

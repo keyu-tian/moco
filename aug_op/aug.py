@@ -38,7 +38,7 @@ class FCBlock(nn.Module):
     def __init__(self, inp_d, oup_d, noi_d, act):
         super(FCBlock, self).__init__()
         self.noi_d = noi_d
-        self.fc = nn.Linear(inp_d, oup_d)
+        self.fc = nn.Linear(inp_d, oup_d, bias=False)
         self.bn = nn.InstanceNorm1d(1, affine=True)
         self.act = act
 

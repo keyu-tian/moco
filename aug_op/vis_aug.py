@@ -162,7 +162,7 @@ if __name__ == '__main__':
         rrc_t = time.time()
 
         aug_inp, aug_tar = next(aug_itrt)
-        (concated_aug_vec, aug_dim, norm_p), (view1, view2) = aa(aug_inp, normalizing=True)
+        (concated_aug_vec, _, _, aug_dim, norm_p), (view1, view2) = aa(aug_inp, normalizing=True)
         aug_vec1, aug_vec2 = concated_aug_vec.data[:, :aug_dim], concated_aug_vec.data[:, aug_dim:]
         
         d = -((view1-view2).norm() ) / org_inp.norm()

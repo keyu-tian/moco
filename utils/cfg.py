@@ -63,6 +63,7 @@ class PretrainCfg(NamedTuple):
     batch_size: int = 512  # cifar: 512, imn: 256
     knn_ld_or_test_ld_batch_size: int = 512
     lr: float = 0.03  # cifar: 0.06 for b512, imn: 0.03 for b256
+    augop: str = 'SGD'
     auglr: float = 0.001
     coslr: bool = True
     schedule: List[int] = [120, 160]  # step decay

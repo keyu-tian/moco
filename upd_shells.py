@@ -20,8 +20,8 @@ if __name__ == '__main__':
         with open(path, 'w', encoding='utf-8') as fp:
             fp.write(
                 ctt.replace(
-                    'auglr: 0.001',
-                    'auglr: 0.005',
+"""    act_name: swish""",
+"""    act_name: tanh""",
                 )
             )
     
