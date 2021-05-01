@@ -770,9 +770,9 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
             l_tb_lg.add_scalar(f'{prefix}/train_loss', tr_loss_avg.last, cur_iter)
         
         if using_auto_aug:
-            if it + 1 == tr_iters:
-                g_tb_lg.add_images('view1', auto_aug.denormalize(data1[:6].data).cpu().numpy(), cur_iter, dataformats='NCHW')
-                g_tb_lg.add_images('view2', auto_aug.denormalize(data2[:6].data).cpu().numpy(), cur_iter, dataformats='NCHW')
+            if (epoch == 0 and it == 0) or (epoch > 0 and epoch % 5 == 0 and it+1 == tr_iters):
+                g_tb_lg.add_images('view1', auto_aug.denormalize(data1[:6].data).cpu().numpy(), epoch, dataformats='NCHW')
+                g_tb_lg.add_images('view2', auto_aug.denormalize(data2[:6].data).cpu().numpy(), epoch, dataformats='NCHW')
             
             if cur_iter < 10 or cur_iter % log_iters == 0 or (actual_aug_lr < sche_aug_lr - 1e-6 and random.randrange(16) == 0):
                 g_tb_lg.add_scalars(f'{prefix}/aug_lr', {'scheduled': sche_aug_lr}, cur_iter)
@@ -785,11 +785,11 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
                 aug_grad1, aug_grad2 = concated_aug_vec.grad[:, :aug_dim], concated_aug_vec.grad[:, aug_dim:]
 
                 [
-                    g_tb_lg.add_scalars(f'aug_para/layer{name}', {'abs.mean': para.data.abs().mean().item(), 'std': para.data.std().item()}, cur_iter)
+                    g_tb_lg.add_scalars(f'stats_aug_para/layer{name}', {'abs.mean': para.data.abs().mean().item(), 'std': para.data.std().item()}, cur_iter)
                     for name, para in auto_aug.generator.fcs.named_parameters() if para.numel() > 4
                 ]
                 
-                g_tb_lg.add_scalars(f'aug_vec_norm/before_normalize', {'n1': aug_norm1, 'n2': aug_norm2}, cur_iter)
+                g_tb_lg.add_scalars(f'stats_aug_vec_norm/before_normalize', {'n1': aug_norm1, 'n2': aug_norm2}, cur_iter)
 
                 names = ('col_h', 'col_s', 'col_v', 'blur', 'tr_x', 'tr_y', 'area', 'ratio')
                 N = len(names)
@@ -800,7 +800,7 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
                         mine.compute_score(v1.cpu().numpy(), v2.cpu().numpy())
                         res[i][j] = mine.mic()
                 
-                g_tb_lg.add_scalars('mic_diag', {name: res.diagonal()[i].item() for i, name in enumerate(names)}, cur_iter)
+                g_tb_lg.add_scalars('all_mic_diag', {name: res.diagonal()[i].item() for i, name in enumerate(names)}, cur_iter)
                 if cur_iter % 4 == 0:
                     g_tb_lg.add_histogram('mic_diag', res.diagonal(), cur_iter)
                     g_tb_lg.add_histogram('mic_other', [res[i][j].item() for i, j in itertools.combinations(range(N), 2)], cur_iter)
@@ -811,12 +811,12 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
                         n_nega = aug_param.numel() - n_posi
                         m_posi = 0 if n_posi == 0 else (torch.clamp(aug_param, min=0).sum().item() / n_posi)
                         m_nega = 0 if n_nega == 0 else (torch.clamp(aug_param, max=0).sum().item() / n_nega)
-                        g_tb_lg.add_scalars(f'aug_vec/{j}_{name}', {f'P{i+1}': m_posi, f'N{i+1}': m_nega}, cur_iter)
-                        g_tb_lg.add_scalars(f'aug_vec/vec{i+1}_all', {f'{j}_{name}_P': m_posi, f'{j}_{name}_N': m_nega}, cur_iter)
+                        g_tb_lg.add_scalars(f'stats_aug_vec/{j}_{name}', {f'P{i+1}': m_posi, f'N{i+1}': m_nega}, cur_iter)
+                        g_tb_lg.add_scalars(f'stats_aug_vec_all/vec{i+1}_all', {f'{j}_{name}_P': m_posi, f'{j}_{name}_N': m_nega}, cur_iter)
 
                 for i, grads in enumerate((aug_grad1.unbind(1), aug_grad2.unbind(1))):
                     for j, (grad, name) in enumerate(zip(grads, names)):
-                        g_tb_lg.add_scalars(f'aug_vec_grad/{j}_{name}', {f'G{i+1}': grad.abs().mean().item()}, cur_iter)
+                        g_tb_lg.add_scalars(f'stats_aug_vec_grad/{j}_{name}', {f'G{i+1}': grad.abs().mean().item()}, cur_iter)
         
         if cur_iter % log_iters == 0:
             # l_tb_lg.add_scalars(f'{prefix}/tr_loss', {'it': loss_avg.avg}, cur_iter)
