@@ -2,10 +2,7 @@ import pathlib
 import warnings
 from collections import defaultdict
 
-try:
-    import mc
-except ImportError:
-    pass
+import mc
 
 import io
 import os
