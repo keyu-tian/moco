@@ -794,9 +794,11 @@ def train_one_ep(is_pretrain, prefix, lg, g_tb_lg, l_tb_lg, dist, meta: ExpMeta,
                         mine = minepy.MINE(alpha=0.6, c=15, est="mic_approx")
                         mine.compute_score(v1.cpu().numpy(), v2.cpu().numpy())
                         res[i][j] = mine.mic()
+                
                 g_tb_lg.add_scalars('mic_diag', {name: res.diagonal()[i].item() for i, name in enumerate(names)}, cur_iter)
-                g_tb_lg.add_histogram('mic_diag', res.diagonal(), cur_iter)
-                g_tb_lg.add_histogram('mic_other', [res[i][j].item() for i, j in itertools.combinations(range(N), 2)], cur_iter)
+                if cur_iter % 4 == 0:
+                    g_tb_lg.add_histogram('mic_diag', res.diagonal(), cur_iter)
+                    g_tb_lg.add_histogram('mic_other', [res[i][j].item() for i, j in itertools.combinations(range(N), 2)], cur_iter)
 
                 for i, aug_params in enumerate((aug_vec1.unbind(1), aug_vec2.unbind(1))):
                     for j, (aug_param, name) in enumerate(zip(aug_params, names)):
