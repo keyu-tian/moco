@@ -144,7 +144,7 @@ class AugVecGenerator(nn.Module):
                 # vecs[i] = torch.bernoulli(torch.empty_like(vecs[i]), 0.5).mul(2).sub(1)
                 vecs[i] = vecs[i] * self.target_norm.abs() * torch.tensor([[
                     # 0.5, 0.3, 0.5, 0.6, 0.6, 0.6, 0.6, 0.6,
-                    0.32, 0.35, 0.5, 0.5, 0.8, 0.8, 0.7, 0.7,
+                    0.32, 0.35, 0.5, 0.5, 0.75, 0.75, 0.7, 0.7,
                 ]]).to(im_batch.device)
                 # print('after', vecs[i].norm(p=p, dim=1, keepdim=True).mean().item())
             else:
