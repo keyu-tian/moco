@@ -43,4 +43,16 @@
 [2020.05.01]
     1. 【搜索】或许before_normalize的时候，两个norm的差距大是比较合适的； 或许搜索过程中动态性比较强而不是很快平坦是比较合适的
     2. 【是不是应该在autoaug完了之后再来一个random hflip啊】注意，sh30最新跑的三个mom0.5（exp-2021-0502-013002，exp-2021-0502-013101，exp-2021-0502-021552），是带有random hflip的！(而最新两个mom0.9则故意不带；因为他们是要和前面两个mo0.9比lr不同情况下的性能的，所以控制了单一变量)
-    3. 【3个mom0.5在30重跑】【3个mom0.7、3个mom0.1一共6个在40重跑】
+    3. 【3个mom0.5在30重跑】【3个mom0.7、3个mom0.1一共6个在40重跑】【5个mom0.9在30的另一个tmux 窗口重跑】
+    4. 【去掉batch内 augvec shuffle】：
+        强掉点！
+        sh30的 /mnt/lustre/tiankeyu/data_t1/moco_imn/exp/imn50_b256_adv_sgd/200ep_aug_border_adv_1.0_0.2_alr0.002_mo0.1/exp-2021-0503-044401
+        sh30的 /mnt/lustre/tiankeyu/data_t1/moco_imn/exp/imn50_b256_adv_sgd/200ep_aug_border_adv_1.0_0.2_alr0.002_mo0.1/exp-2021-0503-044703
+        sh40的 /mnt/lustrenew/tiankeyu/moco_imn/exp/imn50_b256_adv_sgd/200ep_aug_border_adv_1.0_0.2_alr0.002_mo0.1/exp-2021-0503-044525
+        sh40的 /mnt/lustrenew/tiankeyu/moco_imn/exp/imn50_b256_adv_sgd/200ep_aug_border_adv_1.0_0.2_alr0.002_mo0.1/exp-2021-0503-044628
+    5. 【bias=True】：
+        不掉点！
+        sh30的 /mnt/lustre/tiankeyu/data_t1/moco_imn/exp/imn50_b256_adv_sgd/200ep_aug_border_adv_1.0_0.2_alr0.002_mo0.1/exp-2021-0503-045145
+        sh30的 /mnt/lustre/tiankeyu/data_t1/moco_imn/exp/imn50_b256_adv_sgd/200ep_aug_border_adv_1.0_0.2_alr0.002_mo0.1/exp-2021-0503-045611
+        sh40的 /mnt/lustrenew/tiankeyu/moco_imn/exp/imn50_b256_adv_sgd/200ep_aug_border_adv_1.0_0.2_alr0.002_mo0.1/exp-2021-0503-045007
+        sh40的 /mnt/lustrenew/tiankeyu/moco_imn/exp/imn50_b256_adv_sgd/200ep_aug_border_adv_1.0_0.2_alr0.002_mo0.1/exp-2021-0503-045258

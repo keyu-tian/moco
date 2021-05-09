@@ -6,6 +6,7 @@ import socket
 import subprocess
 import sys
 import time
+from collections import Counter
 from copy import deepcopy
 
 import colorama
@@ -22,7 +23,9 @@ tag_choices = [
 def get_ava_port():
     used_ports = os.popen("netstat -ntl |grep -v Active| grep -v Proto|awk '{print $4}'|awk -F: '{print $NF}'").read()
     ava_ports = set(range(10000, 20000)) - set(map(int, used_ports.split()))
-    return min(list(ava_ports), key=lambda x: -str(x).count('0'))
+    ava_ports = sorted(list(ava_ports), key=lambda x: -10 * str(x).count('0') - max(Counter(str(x)).values()))
+    top = max(round(0.05 * len(ava_ports)), 1)
+    return random.choice(ava_ports[:top])
 
 
 def record_dt(dd):

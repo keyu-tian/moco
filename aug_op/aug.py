@@ -63,6 +63,8 @@ class AugVecGenerator(nn.Module):
         self.register_buffer('soft_target', torch.tensor(soft_target))
         self.register_buffer('norm_p', torch.tensor(norm_p))
         
+        self.no_norm_lim = target_norm < 0
+        
         output_dim = aug_dim * 2
         dims = [d * expansion for d in [2, 1, 1, 1]]
         dims.append((dims[-1] + output_dim * 2) // 2)
@@ -137,13 +139,22 @@ class AugVecGenerator(nn.Module):
         p = self.norm_p.item()
         vecs = [vec1, vec2]
         for i in [0, 1]:
-            norm = vecs[i].norm(p=p, dim=1, keepdim=True)
-            unit_vec = vecs[i] / norm
-            if self.soft_target > 1e-5:
-                range01 = norm.sigmoid()
-                vecs[i] = unit_vec * (self.target_norm-self.soft_target + range01*self.soft_target)
+            if self.no_norm_lim:
+                # print('before', vecs[i].norm(p=p, dim=1, keepdim=True).mean().item())
+                # vecs[i] = torch.bernoulli(torch.empty_like(vecs[i]), 0.5).mul(2).sub(1)
+                vecs[i] = vecs[i] * self.target_norm.abs() * torch.tensor([[
+                    # 0.5, 0.3, 0.5, 0.6, 0.6, 0.6, 0.6, 0.6,
+                    0.32, 0.35, 0.5, 0.5, 0.8, 0.8, 0.7, 0.7,
+                ]]).to(im_batch.device)
+                # print('after', vecs[i].norm(p=p, dim=1, keepdim=True).mean().item())
             else:
-                vecs[i] = unit_vec * self.target_norm
+                norm = vecs[i].norm(p=p, dim=1, keepdim=True)
+                unit_vec = vecs[i] / norm
+                if self.soft_target > 1e-5:
+                    range01 = norm.sigmoid()
+                    vecs[i] = unit_vec * (self.target_norm-self.soft_target + range01*self.soft_target)
+                else:
+                    vecs[i] = unit_vec * self.target_norm
         
         return (
             (concated_aug_vec, ad, p),

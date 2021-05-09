@@ -99,7 +99,7 @@ if __name__ == '__main__':
         act_name='tanh',
         padding_mode='zeros',   # 'border', 'reflection' or 'zeros'
         rand_grayscale_p=0,
-        target_norm=1.1,
+        target_norm=-1,
         soft_target=0.3,
     )
     print('num para of AA: ', sum(p.numel() for p in aa.parameters()) / 1e6)
@@ -165,14 +165,15 @@ if __name__ == '__main__':
         (concated_aug_vec, aug_dim, norm_p), (view1, view2) = aa(aug_inp, normalizing=True)
         aug_vec1, aug_vec2 = concated_aug_vec.data[:, :aug_dim], concated_aug_vec.data[:, aug_dim:]
         
-        d = -((view1-view2).norm() ) / org_inp.norm()
-        op.zero_grad()
-        d.sum().backward()
-        orig_norm = torch.nn.utils.clip_grad_norm_(aa.parameters(), 10)
-        print(f'loss={d.item():.3g},  orig_norm={orig_norm:.3g}')
-        op.step()
-        aug_norm1, aug_norm2 = aug_vec1.norm(norm_p, dim=1).mean().item(), aug_vec2.norm(norm_p, dim=1).mean().item()
-        aug_grad1, aug_grad2 = concated_aug_vec.grad[:, :aug_dim], concated_aug_vec.grad[:, aug_dim:]
+        
+        # d = -((view1-view2).norm() ) / org_inp.norm()
+        # op.zero_grad()
+        # d.sum().backward()
+        # orig_norm = torch.nn.utils.clip_grad_norm_(aa.parameters(), 10)
+        # print(f'loss={d.item():.3g},  orig_norm={orig_norm:.3g}')
+        # op.step()
+        # aug_norm1, aug_norm2 = aug_vec1.norm(norm_p, dim=1).mean().item(), aug_vec2.norm(norm_p, dim=1).mean().item()
+        # aug_grad1, aug_grad2 = concated_aug_vec.grad[:, :aug_dim], concated_aug_vec.grad[:, aug_dim:]
 
 
         aug_t = time.time()
