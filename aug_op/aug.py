@@ -116,9 +116,11 @@ class AugVecGenerator(nn.Module):
 
         #   h   s   v      blur   tr_x, tr_y, area, ratio
         # feature = torch.tensor([[
-        #     0.41, 0.39, 0.39,     0.53,     0.93, 0.96, 0.97, 0.62,
-        #     0.41, 0.39, 0.96,     0.45,     0.93, 0.96, 0.66, 0.62,
-        # ]]).repeat(B, 1)
+            # 0.41, 0.39, 0.39,     0.53,     0.93, 0.96, 0.97, 0.62,
+            # 0.41, 0.39, 0.96,     0.45,     0.93, 0.96, 0.66, 0.62,
+            # 0, 0, 0,     1,     0., 0., 0., 0.,
+            # 0, 0, 0,     -1,     0., 0., 0., 0.,
+        # ]]).repeat(B, 1).requires_grad_(True)
         
         concated_aug_vec = feature  # (B, 2*self.aug_dim)
         concated_aug_vec.retain_grad()  # todo: debug看的
@@ -142,7 +144,7 @@ class AugVecGenerator(nn.Module):
             if self.no_norm_lim:
                 # print('before', vecs[i].norm(p=p, dim=1, keepdim=True).mean().item())
                 # vecs[i] = torch.bernoulli(torch.empty_like(vecs[i]), 0.5).mul(2).sub(1)
-                vecs[i] = vecs[i] * self.target_norm.abs() * torch.tensor([[
+                vecs[i]: torch.Tensor = vecs[i] * self.target_norm.abs() * torch.tensor([[
                     # 0.5, 0.3, 0.5, 0.6, 0.6, 0.6, 0.6, 0.6,
                     0.32, 0.35, 0.5, 0.5, 0.75, 0.75, 0.7, 0.7,
                 ]]).to(im_batch.device)
@@ -216,14 +218,19 @@ class Augmenter(nn.Module):
         )
         Augmenter.eye3 = torch.eye(3).reshape(1, 3, 3).to(Augmenter.dev)
         Augmenter.I_filter = torch.tensor([[
-            [0., 0., 0.],
-            [0., 1., 0.],
-            [0., 0., 0.],
+            [0., 0., 0., 0., 0.],
+            [0., 0., 0., 0., 0.],
+            [0., 0., 1., 0., 0.],
+            [0., 0., 0., 0., 0.],
+            [0., 0., 0., 0., 0.],
         ]]).to(Augmenter.dev)
+        
         Augmenter.d_filter = torch.tensor([[
-            [-0.05, -0.10, -0.05],
-            [-0.10, +0.60, -0.10],
-            [-0.05, -0.10, -0.05],
+            [-0.02, -0.02, -0.02, -0.02, -0.02],
+            [-0.02, -0.04, -0.04, -0.04, -0.02],
+            [-0.02, -0.04, +0.64, -0.04, -0.02],
+            [-0.02, -0.04, -0.04, -0.04, -0.02],
+            [-0.02, -0.02, -0.02, -0.02, -0.02],
         ]]).to(Augmenter.dev)
         
         self.rand_grayscale = rand_grayscale_p is not None and rand_grayscale_p > 1e-4

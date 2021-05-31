@@ -99,8 +99,8 @@ if __name__ == '__main__':
         act_name='tanh',
         padding_mode='zeros',   # 'border', 'reflection' or 'zeros'
         rand_grayscale_p=0,
-        target_norm=-1,
-        soft_target=0.3,
+        target_norm=1,
+        soft_target=0.2,
     )
     print('num para of AA: ', sum(p.numel() for p in aa.parameters()) / 1e6)
     
