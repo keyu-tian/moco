@@ -1,3 +1,8 @@
+# Todos
+- 1. use a pretrained teacher model to calibrate similarities for NCELoss (have a talk with Kevin)
+- 2. further extend the semantic augmentations
+
+
 ## MoCo: Momentum Contrast for Unsupervised Visual Representation Learning
 
 <p align="center">

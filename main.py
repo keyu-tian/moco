@@ -466,6 +466,7 @@ def pretrain(
             master_echo(True, f'[rk{dist.rank:2d}] barrier test')
             dist.barrier()
     
+    
     topk_test_acc1 = sum(topk_acc1s) / len(topk_acc1s)
     if meta.torch_ddp:
         perform_dict_str = ''
